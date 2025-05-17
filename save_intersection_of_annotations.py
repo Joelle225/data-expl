@@ -4,8 +4,26 @@ import numpy as np
 import json
 from collections import defaultdict
 
+# After running this file, dataset[] will look as follows:
+# Each entry is a dict: 
+#   X: [T,17,2], Y: [T], meta: identifiers + frame list
+#
+# General shape of each entry -- dataset list where each element is:
+# {
+#   'X': torch.Tensor of shape [T,17,2],
+#   'Y': torch.Tensor of shape [T],
+#   'meta': {
+#     'video':  ...,
+#     'segment': ...,
+#     'camera':  ...,
+#     'participant': ...,
+#     'frames': [list of ints]
+#   }
+# }
+
 NUM_KEYPOINTS = 17
 
+# loader functions
 def load_pose_json(path):
     with open(path, "r") as f:
         data = json.load(f)
@@ -13,68 +31,87 @@ def load_pose_json(path):
 
 def get_participant_ids_from_csv(csv_path):
     with open(csv_path, 'r') as f:
-        first_line = f.readline().strip()
-        return [pid.strip() for pid in first_line.split(',')]
+        header = f.readline().strip().split(',')
+    return [pid.strip() for pid in header]
 
 def load_binary_matrix(csv_path):
     mat = np.genfromtxt(csv_path, delimiter=',', skip_header=1)
-    # force 2D
     if mat.ndim == 1:
         mat = mat.reshape(-1, 1)
     return mat
 
-# Prepare containers
-# we'll collect across *all* files, then stack into big tensors
-pose_samples = []      # list of torch.Tensor [17×2]
-label_samples = []     # list of 0/1 floats
-meta = []              # list of (video,segment,camera,participant,frame)
+# collect per-sequence data
+# Mapping (video, segment, camera, participant, annotator) -> list of (time, keyps, label)
+seqs = defaultdict(list)
 
 pose_dir   = "../annotations/pose/coco"
 binary_dir = "../annotations/actions/drinking/No_Audio"
 
-# Loop over each segment
 for pose_path in Path(pose_dir).rglob("*.json"):
-    # parse metadata from filename
+    # parse pose metadata
     cam_s, vid_s, seg_s, _ = pose_path.stem.split("_")
     camera  = cam_s.replace("cam", "")
     video   = vid_s.replace("vid", "")
     segment = seg_s.replace("seg", "")
 
-    # load pose frames & find matching annotation files
     pose_frames = load_pose_json(pose_path)
+    # find all annotator CSVs for this video/segment
     matches = list(Path(binary_dir).rglob(f"vid{video}_seg{segment}_*.csv"))
     if not matches:
         continue
 
     for csv_path in matches:
+        # extract annotator from filename (e.g., vid2_seg8_ann1.csv)
+        annotator = Path(csv_path).stem.split('_')[-1].replace("ann", "")
         participant_ids = get_participant_ids_from_csv(csv_path)
-        bin_mat = load_binary_matrix(csv_path)  # shape: (T, N)
+        bin_mat = load_binary_matrix(csv_path)
 
-        # for each frame & each pid, only append if both exist
-        for t, frame in enumerate(pose_frames):
-            for col, pid in enumerate(participant_ids):
-                # 1) check annotation exists
-                if t >= bin_mat.shape[0]:
+        for frame_num, frame in enumerate(pose_frames):
+            if frame_num >= bin_mat.shape[0]:
+                break
+            for id_num, participant_id in enumerate(participant_ids):
+                if participant_id not in frame:
                     continue
-                label = bin_mat[t, col]
-                # 2) check pose exists
-                if pid not in frame:
-                    continue
+                label = float(bin_mat[frame_num, id_num])
+                keypts = frame[participant_id]["keypoints"]
+                keypts = [float(x) if x is not None else float("nan") for x in keypts]
+                keypts = np.array(keypts).reshape(NUM_KEYPOINTS, 2)
+                seqs[(video, segment, camera, participant_id, annotator)].append((frame_num, keypts, label))
 
-                # extract keypoints array
-                keyps = frame[pid]["keypoints"]
-                keyps = [float(x) if x is not None else float("nan") for x in keyps]
-                keyps = np.array(keyps).reshape(NUM_KEYPOINTS, 2)
+# build sequence-level tensors
+# container: list of dicts with 'X', 'Y', 'meta'
+dataset = []
+for (video, segment, camera, pid, annotator), entries in seqs.items():
+    entries.sort(key=lambda e: e[0])
+    times, keyps_list, labels = zip(*entries)
+    Xseq = torch.tensor(np.stack(keyps_list), dtype=torch.float32) # [T,17,2]
+    Yseq = torch.tensor(labels, dtype=torch.float32) # [T]
+    meta = {
+        'video': video,
+        'segment': segment,
+        'camera': camera,
+        'participant': pid,
+        'annotator': annotator,
+        'frames': list(times)
+    }
+    dataset.append({'X': Xseq, 'Y': Yseq, 'meta': meta})
 
-                # store
-                pose_samples.append(torch.from_numpy(keyps).float())  # [17,2]
-                label_samples.append(float(label))                    # 0.0 or 1.0
-                meta.append((video, segment, camera, pid, t))
+print(f"Built dataset with {len(dataset)} sequences of {len(dataset[0]['X'])}.")
 
-# Stack into big tensors
-# X: [S, 17, 2],  Y: [S], where S = total number of matched samples
-X = torch.stack(pose_samples)           # shape: (S, K, 2)
-Y = torch.tensor(label_samples)         # shape: (S,)
+# save dataset to disk 
+# Use torch.save to persist the entire dataset list
+output_path = Path("./drinking_sequence_dataset.pth")
+torch.save(dataset, output_path)
+print(f"Dataset saved to {output_path.resolve()}")
 
-print("Sampled", X.shape[0], "frame-participant pairs.")
-print("X:", X.shape,   "  Y:", Y.shape)
+# loading snippet
+# Later, in another script, load with:
+# 
+#   import torch
+#   from pathlib import Path
+#   dataset = torch.load(Path("/path/to/drinking_sequence_dataset.pth"))
+#   # dataset is a list of dicts with keys 'X', 'Y', 'meta'
+#
+# Then wrap dataset into a PyTorch Dataset/ DataLoader as needed.
+
+print("saved to disk... done!")
