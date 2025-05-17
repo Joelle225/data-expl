@@ -64,23 +64,27 @@ for pose_path in Path(pose_dir).rglob("*.json"):
                 keypoints = [x if x is not None else float('nan') for x in pose_data]
                 keypoints = np.array(keypoints).reshape(NUM_KEYPOINTS, 2)
 
-                dist_lefth = extract_keypoint_distance(keypoints, 1, 9)
-                dist_righth = extract_keypoint_distance(keypoints, 1, 8)
+                # dist_lefth = extract_keypoint_distance(keypoints, 1, 9)
+                # dist_righth = extract_keypoint_distance(keypoints, 1, 8)
+                current_distances = [extract_keypoint_distance(keypoints, 1, 9), extract_keypoint_distance(keypoints, 1, 8)]
+                valid = [v for v in current_distances if v is not None]
+                min_dist = min(valid) if valid else None
 
                 label = "drinking" if drinking_flag == 1 else "not_drinking"
-                if dist_lefth is not None and dist_lefth < 0.6 : distances[label].append(dist_lefth)
-                if dist_righth is not None and dist_righth < 0.6: distances[label].append(dist_righth)
+                # if dist_lefth is not None and dist_lefth < 0.6 : distances[label].append(dist_lefth)
+                # if dist_righth is not None and dist_righth < 0.6: distances[label].append(dist_righth)
+                if min_dist is not None and min_dist < 0.5: distances[label].append(min_dist)
 
 plt.figure(figsize=(10, 5))
 plt.subplot(1, 2, 1)
-plt.hist(distances["drinking"], bins=100, alpha=0.7, label="Drinking", color="blue")
-plt.title("Distances hands to mouth (Drinking)")
+plt.hist(distances["drinking"], bins=50, alpha=0.7, label="Drinking", color="blue")
+plt.title("Minimum hand to mouth distance (Drinking)")
 plt.xlabel("Distance (normalized)")
 plt.ylabel("Count")
 
 plt.subplot(1, 2, 2)
 plt.hist(distances["not_drinking"], bins=100, alpha=0.7, label="Not Drinking", color="green")
-plt.title("Distances hands to mouth (Not Drinking)")
+plt.title("Minimum hand to mouth distance (Not Drinking)")
 plt.xlabel("Distance (normalized)")
 
 plt.tight_layout()
