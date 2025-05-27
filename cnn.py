@@ -18,6 +18,11 @@ class DrinkingCNN(nn.Module):
     def forward(self, x):
         # x: [B, T, 17, 2] → flatten keypoints
         B, T, K, D = x.shape
+
+        assert K * D == 34, f"Expected 17 keypoints and 2 dims, got shape {x.shape}"
+        if T < 5:
+            raise ValueError(f"Input sequence too short: T={T}, but kernel size is 5")
+        
         x = x.view(B, T, K * D)        # [B, T, 34]
         x = x.permute(0, 2, 1)         # [B, 34, T]
 
