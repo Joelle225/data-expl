@@ -8,15 +8,27 @@ from cnn import DrinkingCNN, train_model
 sequence_dataset = torch.load("./drinking_sequence_dataset.pth")
 
 # Wrap with your custom Dataset
-windowed_dataset = SlidingWindowPoseDataset(sequence_dataset, window_size=45, stride=5)
+# windowed_dataset = SlidingWindowPoseDataset(sequence_dataset, window_size=45, stride=5)
+
+dataset = SlidingWindowPoseDataset(
+    sequences=sequence_dataset,   # ← raw [T, 17, 2] pose data
+    window_size=45,
+    stride=1,
+    neg_to_pos_ratio=4,
+    balance=True,
+    jitter_max=3,
+    reverse_positives=True
+)
 
 # Wrap with DataLoader
 train_loader, val_loader = DataLoader(
-    windowed_dataset,
+    dataset,
     batch_size=32,          # Number of samples per batch
     shuffle=True,           # Shuffle for training randomness
     num_workers=4,          # Parallel data loading (can use 0 for debugging)
     pin_memory=True)        # Speed optimization when using CUDA
+
+
 
 # Example of using it
 # for X_batch, y_batch in train_loader:       # Sizes:
