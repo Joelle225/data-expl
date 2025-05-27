@@ -82,8 +82,8 @@ class SlidingWindowPoseDataset(Dataset):
         Y = sample['Y']
         meta = sample['meta']
 
-        # Apply temporal jitter
-        if self.jitter_max > 0:
+        # Apply temporal jitter -- Temporarily disabled due to debugging identifying this as a runtime error generator
+        if False: #TODO: Fix jitter it doesnt work. Old: `self.jitter_max > 0:`
             shift = np.random.randint(-self.jitter_max, self.jitter_max + 1)
             start_idx = meta['start_idx'] + shift
             seq_len = X.shape[0]

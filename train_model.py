@@ -39,7 +39,7 @@ for fold, (train_idx, val_idx) in enumerate(kf.split(group_keys)):
     train_sequences = [sequence_dataset[i] for i in train_indices]
     val_sequences = [sequence_dataset[i] for i in val_indices]
 
-    # Construct datasets
+    # Construct datasets -- TODO: Make sure no leakage due to duplicates between camera feeds 
     train_dataset = SlidingWindowPoseDataset(
         sequences=train_sequences,
         window_size=45,
@@ -66,7 +66,7 @@ for fold, (train_idx, val_idx) in enumerate(kf.split(group_keys)):
 
     # Model, optimizer, loss
     model = DrinkingCNN().to(device)
-    loss_fn = nn.BCELoss()
+    loss_fn = torch.nn.BCEWithLogitsLoss()
     optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
 
     # Train

@@ -29,7 +29,7 @@ class DrinkingCNN(nn.Module):
         x = F.relu(self.bn1(self.conv1(x)))  # [B, hidden, T]
         x = F.relu(self.bn2(self.conv2(x)))  # [B, hidden, T]
         x = self.pool(x).squeeze(-1)         # [B, hidden]
-        out = torch.sigmoid(self.fc(x))      # [B, 1]
+        out = self.fc(x) #torch.sigmoid(self.fc(x))      # [B, 1]
         return out.squeeze(-1)               # [B]
 
 # Training function for one epoch
