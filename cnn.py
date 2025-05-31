@@ -3,6 +3,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.utils.data import DataLoader
 from tqdm import tqdm
+from sklearn.metrics import precision_recall_fscore_support
 
 # A very simplified model, lared-laughted model could be adapted instead, perhaps.
 class DrinkingCNN(nn.Module):
@@ -59,9 +60,6 @@ def train_one_epoch(model, dataloader, optimizer, loss_fn, device):
         running_loss += loss.item() * X.size(0)
 
     return running_loss / len(dataloader.dataset)
-
-# Evaluation function
-from sklearn.metrics import precision_recall_fscore_support
 
 def evaluate(model, dataloader, loss_fn, device):
     model.eval()
