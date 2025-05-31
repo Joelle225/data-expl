@@ -67,6 +67,22 @@ for fold, (train_idx, val_idx) in enumerate(kf.split(group_keys)):
     # Model, optimizer, loss
     model = DrinkingCNN().to(device)
     loss_fn = torch.nn.BCEWithLogitsLoss()
+
+    if len(train_dataset) > 0:
+        train_labels_for_weight = [sample_tuple[2].item() for sample_tuple in train_dataset]
+        num_pos_train = sum(1 for label in train_labels_for_weight if label == 1.0)
+        num_neg_train = len(train_labels_for_weight) - num_pos_train
+
+        if num_pos_train > 0:
+            effective_pos_weight = torch.tensor(num_neg_train / num_pos_train, device=device)
+            print(f"Using pos_weight for BCEWithLogitsLoss: {effective_pos_weight.item():.2f}")
+            loss_fn = torch.nn.BCEWithLogitsLoss(pos_weight=effective_pos_weight)
+        else:
+            print("Warning: No positive samples in training data for this fold. Using default BCEWithLogitsLoss.")
+            loss_fn = torch.nn.BCEWithLogitsLoss() # Fallback
+    else:
+        print("Warning: Training dataset is empty for this fold.")
+
     optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
 
     # Train
