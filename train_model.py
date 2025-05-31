@@ -20,10 +20,15 @@ for idx, seq in enumerate(sequence_dataset):
 
 # Create list of fold units (each unit is all cams of one segment)
 group_keys = list(grouped.keys())
-n_splits = 5
+n_splits = 7
 kf = KFold(n_splits=n_splits, shuffle=True, random_state=42)
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+# group_sizes = [len(grouped[k]) for k in group_keys]
+# print("Group sizes (number of samples per group):", group_sizes)
+# print("Total samples:", sum(group_sizes))
+# exit()
 
 # Store out-of-fold predictions and labels
 all_val_preds = []
@@ -42,9 +47,9 @@ for fold, (train_idx, val_idx) in enumerate(kf.split(group_keys)):
     # Construct datasets -- TODO: Make sure no leakage due to duplicates between camera feeds 
     train_dataset = SlidingWindowPoseDataset(
         sequences=train_sequences,
-        window_size=45,
+        window_size=30,
         stride=1,
-        neg_to_pos_ratio=4,
+        neg_to_pos_ratio=10,
         balance=True,
         jitter_max=3,
         reverse_positives=True
@@ -54,7 +59,7 @@ for fold, (train_idx, val_idx) in enumerate(kf.split(group_keys)):
         sequences=val_sequences,
         window_size=45,
         stride=1,
-        neg_to_pos_ratio=4,  # or False for full negatives
+        # neg_to_pos_ratio=4,  # or False for full negatives
         balance=False,       # Evaluate on unbalanced validation
         jitter_max=0,
         reverse_positives=False
@@ -74,7 +79,7 @@ for fold, (train_idx, val_idx) in enumerate(kf.split(group_keys)):
         num_neg_train = len(train_labels_for_weight) - num_pos_train
 
         if num_pos_train > 0:
-            effective_pos_weight = torch.tensor(num_neg_train / num_pos_train, device=device)
+            effective_pos_weight = torch.tensor(35, device=device) #num_neg_train / num_pos_train, device=device)
             print(f"Using pos_weight for BCEWithLogitsLoss: {effective_pos_weight.item():.2f}")
             loss_fn = torch.nn.BCEWithLogitsLoss(pos_weight=effective_pos_weight)
         else:
