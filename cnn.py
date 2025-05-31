@@ -61,29 +61,118 @@ def train_one_epoch(model, dataloader, optimizer, loss_fn, device):
     return running_loss / len(dataloader.dataset)
 
 # Evaluation function
+from sklearn.metrics import precision_recall_fscore_support
+
 def evaluate(model, dataloader, loss_fn, device):
     model.eval()
     total_loss = 0.0
-    correct = 0
-    total = 0
+
+    all_true_labels = []
+    all_predicted_labels = []
 
     with torch.no_grad():
-        for X, y in dataloader:
+        for batch in dataloader:  # batch yields (X, y)
+            X, y = batch
             X = X.to(device)
-            y = y.to(device)
-            outputs = model(X)
-            loss = loss_fn(outputs, y.float())
-            total_loss += loss.item() * X.size(0)
+            y_true = y.to(device).float()
 
-            # Binary accuracy
-            probs = torch.sigmoid(outputs) 
+            outputs = model(X)  # Raw logits
+
+            if not torch.isnan(outputs).any():
+                loss = loss_fn(outputs, y_true)
+                if not torch.isnan(loss):
+                    total_loss += loss.item() * X.size(0)
+
+            probs = torch.sigmoid(outputs)
             preds = (probs > 0.5).float()
-            correct += (preds == y).sum().item()
-            total += y.size(0)
 
-    avg_loss = total_loss / total
-    accuracy = correct / total
-    return avg_loss, accuracy
+            all_true_labels.append(y_true.cpu())
+            all_predicted_labels.append(preds.cpu())
+
+    avg_loss = float('nan')
+    accuracy = float('nan')
+    precision = float('nan')
+    recall = float('nan')
+    f1 = float('nan')
+
+    if not all_true_labels:
+        return avg_loss, accuracy, precision, recall, f1
+
+    all_true_labels = torch.cat(all_true_labels).numpy()
+    all_predicted_labels = torch.cat(all_predicted_labels).numpy()
+
+    num_samples_for_loss = len(all_true_labels)
+
+    if num_samples_for_loss > 0:
+        avg_loss = total_loss / num_samples_for_loss
+
+    if len(all_true_labels) > 0:
+        accuracy = (all_predicted_labels == all_true_labels).sum() / len(all_true_labels)
+        from sklearn.metrics import precision_recall_fscore_support
+        p, r, f, _ = precision_recall_fscore_support(
+            all_true_labels, all_predicted_labels, average='binary', pos_label=1, zero_division=0
+        )
+        precision, recall, f1 = p, r, f
+
+    return avg_loss, accuracy, precision, recall, f1
+
+# Modified version of eval including mask 
+# def evaluate(model, dataloader, loss_fn, device):
+#     model.eval()
+#     total_loss = 0.0
+
+#     all_true_labels = []
+#     all_predicted_labels = []
+
+#     with torch.no_grad():
+#         for batch in dataloader: # Assuming batch yields (X_coords, X_mask, Y_label)
+#             X_coords_b, X_mask_b, y_b = batch
+#             X_coords_b = X_coords_b.to(device)
+#             X_mask_b = X_mask_b.to(device)
+#             y_true = y_b.to(device).float()
+
+#             outputs = model(X_coords_b, X_mask_b) # Raw logits
+
+#             # Loss calculation (ensure valid outputs before calculating loss)
+#             if not torch.isnan(outputs).any():
+#                 loss = loss_fn(outputs, y_true)
+#                 if not torch.isnan(loss):
+#                     total_loss += loss.item() * X_coords_b.size(0)
+
+#             probs = torch.sigmoid(outputs)
+#             preds = (probs > 0.5).float()
+
+#             all_true_labels.append(y_true.cpu())
+#             all_predicted_labels.append(preds.cpu())
+
+#     avg_loss = float('nan')
+#     accuracy = float('nan')
+#     precision = float('nan')
+#     recall = float('nan')
+#     f1 = float('nan')
+
+#     if not all_true_labels: # No data processed
+#         return avg_loss, accuracy, precision, recall, f1
+
+#     all_true_labels = torch.cat(all_true_labels).numpy()
+#     all_predicted_labels = torch.cat(all_predicted_labels).numpy()
+
+#     num_samples_for_loss = len(all_true_labels) # Or however you define the denominator for loss
+
+#     if num_samples_for_loss > 0 :
+#         avg_loss = total_loss / num_samples_for_loss
+
+
+#     if len(all_true_labels) > 0:
+#         accuracy = (all_predicted_labels == all_true_labels).sum() / len(all_true_labels)
+#         # Calculate precision, recall, F1 for the positive class (label 1)
+#         # 'binary' assumes positive class is 1. Or use labels=[1], average=None and pick.
+#         p, r, f, _ = precision_recall_fscore_support(
+#             all_true_labels, all_predicted_labels, average='binary', pos_label=1, zero_division=0
+#         )
+#         precision, recall, f1 = p, r, f
+
+#     return avg_loss, accuracy, precision, recall, f1
 
 # Main training loop
 def train_model(model, train_loader, val_loader, optimizer, loss_fn, device, num_epochs=10):
@@ -91,8 +180,9 @@ def train_model(model, train_loader, val_loader, optimizer, loss_fn, device, num
 
     for epoch in range(num_epochs):
         train_loss = train_one_epoch(model, train_loader, optimizer, loss_fn, device)
-        val_loss, val_acc = evaluate(model, val_loader, loss_fn, device)
+        val_loss, val_acc, val_precision, val_recall, val_f1 = evaluate(model, val_loader, loss_fn, device)
 
         print(f"Epoch {epoch+1}/{num_epochs}")
         print(f"  Train Loss: {train_loss:.4f}")
         print(f"  Val   Loss: {val_loss:.4f}, Accuracy: {val_acc:.4f}")
+        print(f"  Precision : {val_precision:.4f}, Recall: {val_recall:.4f}, F1: {val_f1:.4f}")

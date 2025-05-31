@@ -69,7 +69,7 @@ for fold, (train_idx, val_idx) in enumerate(kf.split(group_keys)):
     loss_fn = torch.nn.BCEWithLogitsLoss()
 
     if len(train_dataset) > 0:
-        train_labels_for_weight = [sample_tuple[2].item() for sample_tuple in train_dataset]
+        train_labels_for_weight = [sample_tuple[1].item() for sample_tuple in train_dataset]
         num_pos_train = sum(1 for label in train_labels_for_weight if label == 1.0)
         num_neg_train = len(train_labels_for_weight) - num_pos_train
 
