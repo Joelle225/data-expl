@@ -8,6 +8,27 @@ from torch import nn
 import numpy as np
 from sklearn.metrics import roc_auc_score, precision_recall_fscore_support
 
+# Knobs to turn: 
+n_splits                = 5
+train_window_size       = 45
+train_stride            = 1
+train_neg_to_pos_ratio  = 10
+train_balance_dataset   = True 
+train_jitter_max        = 3
+train_reverse_positives = True
+
+val_window_size         = 45
+val_stride              = 1
+val_neg_to_pos_ratio    = 4
+val_balance_dataset     = False
+
+batch_size              = 32
+bce_pos_weight          = 70
+num_epochs              = 20
+
+# Misc Options
+save_model_weights=True
+
 # Load dataset
 sequence_dataset = torch.load("./drinking_sequence_dataset.pth")
 
@@ -20,7 +41,6 @@ for idx, seq in enumerate(sequence_dataset):
 
 # Create list of fold units (each unit is all cams of one segment)
 group_keys = list(grouped.keys())
-n_splits = 7
 kf = KFold(n_splits=n_splits, shuffle=True, random_state=42)
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -47,27 +67,27 @@ for fold, (train_idx, val_idx) in enumerate(kf.split(group_keys)):
     # Construct datasets -- TODO: Make sure no leakage due to duplicates between camera feeds 
     train_dataset = SlidingWindowPoseDataset(
         sequences=train_sequences,
-        window_size=30,
-        stride=1,
-        neg_to_pos_ratio=10,
-        balance=True,
-        jitter_max=3,
-        reverse_positives=True
+        window_size=train_window_size,
+        stride=train_stride,
+        neg_to_pos_ratio=train_neg_to_pos_ratio,
+        balance=train_balance_dataset,
+        jitter_max=train_jitter_max,
+        reverse_positives=train_reverse_positives
     )
 
     val_dataset = SlidingWindowPoseDataset(
         sequences=val_sequences,
-        window_size=45,
-        stride=1,
-        # neg_to_pos_ratio=4,  # or False for full negatives
-        balance=False,       # Evaluate on unbalanced validation
+        window_size=val_window_size,
+        stride=val_stride,
+        neg_to_pos_ratio=val_neg_to_pos_ratio,  # or False for full negatives
+        balance=val_balance_dataset,            # Evaluate on unbalanced validation
         jitter_max=0,
         reverse_positives=False
     )
 
     # DataLoaders
-    train_loader = DataLoader(train_dataset, batch_size=32, shuffle=True, num_workers=4, pin_memory=True)
-    val_loader = DataLoader(val_dataset, batch_size=32, shuffle=False, num_workers=4, pin_memory=True)
+    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=4, pin_memory=True)
+    val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, num_workers=4, pin_memory=True)
 
     # Model, optimizer, loss
     model = DrinkingCNN().to(device)
@@ -77,9 +97,10 @@ for fold, (train_idx, val_idx) in enumerate(kf.split(group_keys)):
         train_labels_for_weight = [sample_tuple[1].item() for sample_tuple in train_dataset]
         num_pos_train = sum(1 for label in train_labels_for_weight if label == 1.0)
         num_neg_train = len(train_labels_for_weight) - num_pos_train
+        print(f"Num pos this epoch: {num_pos_train}, Num negative this epoch: {num_neg_train}")
 
         if num_pos_train > 0:
-            effective_pos_weight = torch.tensor(35, device=device) #num_neg_train / num_pos_train, device=device)
+            effective_pos_weight = torch.tensor(bce_pos_weight, device=device) #num_neg_train / num_pos_train, device=device)
             print(f"Using pos_weight for BCEWithLogitsLoss: {effective_pos_weight.item():.2f}")
             loss_fn = torch.nn.BCEWithLogitsLoss(pos_weight=effective_pos_weight)
         else:
@@ -98,11 +119,12 @@ for fold, (train_idx, val_idx) in enumerate(kf.split(group_keys)):
         optimizer=optimizer,
         loss_fn=loss_fn,
         device=device,
-        num_epochs=20
+        num_epochs=num_epochs
     )
 
     # Save weights per fold
-    torch.save(model.state_dict(), f"cnn_model_fold{fold+1}.pth")
+    if save_model_weights: 
+        torch.save(model.state_dict(), f"cnn_model_fold{fold+1}.pth")
 
     model.eval()
     with torch.no_grad():
