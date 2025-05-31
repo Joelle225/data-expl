@@ -89,7 +89,7 @@ for fold, (train_idx, val_idx) in enumerate(kf.split(group_keys)):
             X_batch = X_batch.to(device)
             y_batch = y_batch.to(device)
 
-            logits = model(X_batch).squeeze(1)       # [B]
+            logits = model(X_batch) #.squeeze(1)       # [B]
             probs = torch.sigmoid(logits).cpu().numpy()
             labels = y_batch.cpu().numpy()
 

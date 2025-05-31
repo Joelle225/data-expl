@@ -102,4 +102,4 @@ class SlidingWindowPoseDataset(Dataset):
 
             X = full_seq[valid_start:valid_start + self.window_size]
 
-        return X, Y
+        return X.nan_to_num(nan=1.0), Y.nan_to_num(nan=1.0)

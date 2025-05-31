@@ -39,13 +39,21 @@ def train_one_epoch(model, dataloader, optimizer, loss_fn, device):
 
     for batch in tqdm(dataloader, desc="Training"):
         X, y = batch
+
+        if torch.isnan(X).any():
+            raise ValueError("NaN found in input features X! Please clean your dataset.")
+        if torch.isnan(y).any(): # Though less likely for 0/1 labels
+            raise ValueError("NaN found in input labels y! Please clean your dataset.")
+        
         X = X.to(device)
-        y = y.to(device)
+        y = y.to(device).float()
 
         optimizer.zero_grad()
         outputs = model(X)
         loss = loss_fn(outputs, y)
         loss.backward()
+        # Clip gradients (optional?)
+        torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0) 
         optimizer.step()
 
         running_loss += loss.item() * X.size(0)
@@ -64,11 +72,12 @@ def evaluate(model, dataloader, loss_fn, device):
             X = X.to(device)
             y = y.to(device)
             outputs = model(X)
-            loss = loss_fn(outputs, y)
+            loss = loss_fn(outputs, y.float())
             total_loss += loss.item() * X.size(0)
 
             # Binary accuracy
-            preds = (outputs > 0.5).float()
+            probs = torch.sigmoid(outputs) 
+            preds = (probs > 0.5).float()
             correct += (preds == y).sum().item()
             total += y.size(0)
 
