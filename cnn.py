@@ -20,7 +20,7 @@ class DrinkingCNN(nn.Module):
         # x: [B, T, 17, 2] → flatten keypoints
         B, T, K, D = x.shape
 
-        assert K * D == 34, f"Expected 17 keypoints and 2 dims, got shape {x.shape}"
+        assert K * D == 5 * 2, f"Expected /-17-/ 5 keypoints and 2 dims, got shape {x.shape}"
         if T < 5:
             raise ValueError(f"Input sequence too short: T={T}, but kernel size is 5")
         

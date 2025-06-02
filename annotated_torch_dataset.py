@@ -2,6 +2,7 @@ import torch
 import numpy as np
 from torch.utils.data import Dataset
 import random
+from tqdm import tqdm
 
 class SlidingWindowPoseDataset(Dataset):
     def __init__(
@@ -29,7 +30,7 @@ class SlidingWindowPoseDataset(Dataset):
         pos_samples = []
         neg_samples = []
 
-        for seq in sequences:
+        for seq in tqdm(sequences, desc="Initializing Dataset"):
             X = seq['X']   # [T, 17, 2]
             Y = seq['Y']   # [T]
             meta = seq['meta']
@@ -40,8 +41,10 @@ class SlidingWindowPoseDataset(Dataset):
                 Y_win = Y[start:end]
                 label = torch.any(Y_win > 0).float()
 
+                select_keypoints = [0, 2, 3, 7, 8] # selects head shoulders and hands
+                newX = X[start:end][:, select_keypoints, :]
                 sample = {
-                    'X': X[start:end],       # [W, 17, 2]
+                    'X': newX,       # !!!HI, HERE THIS COMMENT IS IMPORTANT!!! I want to turn this [W, 17, 2] --> into extraacted features instead. How?
                     'Y': label,              # float (0.0 or 1.0)
                     'meta': {
                         **meta,
@@ -56,7 +59,7 @@ class SlidingWindowPoseDataset(Dataset):
                     if reverse_positives:
                         # Add reversed version of window
                         rev_sample = {
-                            'X': torch.flip(X[start:end], dims=[0]),
+                            'X': torch.flip(X[start:end][:, select_keypoints ,:], dims=[0]),
                             'Y': label,
                             'meta': {**sample['meta'], 'reversed': True}
                         }
@@ -80,26 +83,6 @@ class SlidingWindowPoseDataset(Dataset):
         sample = self.samples[idx]
         X = sample['X']
         Y = sample['Y']
-        meta = sample['meta']
-
-        # Apply temporal jitter -- Temporarily disabled due to debugging identifying this as a runtime error generator
-        if False: #TODO: Fix jitter it doesnt work. Old: `self.jitter_max > 0:`
-            shift = np.random.randint(-self.jitter_max, self.jitter_max + 1)
-            start_idx = meta['start_idx'] + shift
-            seq_len = X.shape[0]
-
-            # Ensure we stay within bounds
-            orig_start = meta['start_idx']
-            seq_length = len(meta['frames'])  # Assuming 'frames' covers full seq
-
-            valid_start = max(0, min(seq_length - self.window_size, start_idx))
-
-            # Get corresponding window again (can't reuse X if jittered)
-            if 'reversed' in meta and meta['reversed']:
-                full_seq = torch.flip(self.samples[idx]['X'], dims=[0])  # Already reversed
-            else:
-                full_seq = X
-
-            X = full_seq[valid_start:valid_start + self.window_size]
+        # meta = sample['meta']
 
         return X.nan_to_num(nan=1.0), Y.nan_to_num(nan=1.0)

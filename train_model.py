@@ -4,18 +4,34 @@ from torch.utils.data import DataLoader, Subset
 from annotated_torch_dataset import SlidingWindowPoseDataset
 from cnn import DrinkingCNN, train_model
 import torch
-from torch import nn
+# from torch import nn
 import numpy as np
 from sklearn.metrics import roc_auc_score, precision_recall_fscore_support
+import datetime
 
+############
+### TODO's
+## 1. array size too big
+## 2. step size to erratic/big
+## 3. feature extraction
+## *4. TQDM in data init
+## 5. refactor into neater code
+## 6. fix leak in train/val split on annotator as well
+## 7. with this little data, should I even use a CNN?
+
+## Attention: TODO check if use correct: PyTorch's Conv1d typically expects (batch_size, channels, sequence_length), so (batch_size, N, W) if N is your number of feature channels
+############
+
+######ooo######
 # Knobs to turn: 
 n_splits                = 5
 train_window_size       = 45
-train_stride            = 1
-train_neg_to_pos_ratio  = 10
+train_stride            = 1 # was 3
+train_neg_to_pos_ratio  = 1 # was 10
 train_balance_dataset   = True 
 train_jitter_max        = 3
-train_reverse_positives = True
+train_reverse_positives = True # try setting to false to see what happens to performance TODO.
+learning_rate           = 1e-4 # was 1e-3
 
 val_window_size         = 45
 val_stride              = 1
@@ -23,11 +39,10 @@ val_neg_to_pos_ratio    = 4
 val_balance_dataset     = False
 
 batch_size              = 32
-bce_pos_weight          = 350
+bce_pos_weight_factor   = 3 # was 350
 num_epochs              = 20
+######ooo######
 
-# learning rate
-# step size
 
 # Misc Options
 save_model_weights=True
@@ -35,7 +50,7 @@ save_model_weights=True
 # Load dataset
 sequence_dataset = torch.load("./drinking_sequence_dataset.pth")
 
-# Group sequences by participant-video-segment (ignoring camera to prevent leakage)
+# Group sequences by participant-video-segment (ignoring camera and annotator to prevent leakage)
 grouped = defaultdict(list)
 for idx, seq in enumerate(sequence_dataset):
     meta = seq['meta']
@@ -68,6 +83,7 @@ for fold, (train_idx, val_idx) in enumerate(kf.split(group_keys)):
     val_sequences = [sequence_dataset[i] for i in val_indices]
 
     # Construct datasets -- TODO: Make sure no leakage due to duplicates between camera feeds 
+    print("Loading training set")
     train_dataset = SlidingWindowPoseDataset(
         sequences=train_sequences,
         window_size=train_window_size,
@@ -78,6 +94,7 @@ for fold, (train_idx, val_idx) in enumerate(kf.split(group_keys)):
         reverse_positives=train_reverse_positives
     )
 
+    print("Loading validation set")
     val_dataset = SlidingWindowPoseDataset(
         sequences=val_sequences,
         window_size=val_window_size,
@@ -93,17 +110,19 @@ for fold, (train_idx, val_idx) in enumerate(kf.split(group_keys)):
     val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, num_workers=4, pin_memory=True)
 
     # Model, optimizer, loss
-    model = DrinkingCNN().to(device)
+    sample_X, _ = train_dataset[0]
+    input_channel_size = sample_X.shape[1] * sample_X.shape[2]
+    model = DrinkingCNN(input_channels=input_channel_size).to(device)
     loss_fn = torch.nn.BCEWithLogitsLoss()
 
     if len(train_dataset) > 0:
         train_labels_for_weight = [sample_tuple[1].item() for sample_tuple in train_dataset]
         num_pos_train = sum(1 for label in train_labels_for_weight if label == 1.0)
         num_neg_train = len(train_labels_for_weight) - num_pos_train
-        print(f"Num pos this epoch: {num_pos_train}, Num negative this epoch: {num_neg_train}")
+        print(f"Num pos this fold: {num_pos_train}, Num negative this fold: {num_neg_train}")
 
         if num_pos_train > 0:
-            effective_pos_weight = torch.tensor(bce_pos_weight, device=device) #num_neg_train / num_pos_train, device=device)
+            effective_pos_weight = torch.tensor(bce_pos_weight_factor * (num_neg_train / num_pos_train), device=device) # device=device) #
             print(f"Using pos_weight for BCEWithLogitsLoss: {effective_pos_weight.item():.2f}")
             loss_fn = torch.nn.BCEWithLogitsLoss(pos_weight=effective_pos_weight)
         else:
@@ -112,7 +131,7 @@ for fold, (train_idx, val_idx) in enumerate(kf.split(group_keys)):
     else:
         print("Warning: Training dataset is empty for this fold.")
 
-    optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
+    optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
 
     # Train
     train_model(
@@ -126,8 +145,11 @@ for fold, (train_idx, val_idx) in enumerate(kf.split(group_keys)):
     )
 
     # Save weights per fold
-    if save_model_weights: 
-        torch.save(model.state_dict(), f"cnn_model_fold{fold+1}.pth")
+    # if save_model_weights: 
+    #     torch.save(model.state_dict(), f"cnn_model_fold{fold+1}.pth")
+    if save_model_weights:
+        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        torch.save(model.state_dict(), f"cnn_model_fold{fold+1}_{timestamp}.pth")
 
     model.eval()
     with torch.no_grad():
@@ -157,3 +179,20 @@ print(f"ROC AUC:     {roc_auc:.4f}")
 print(f"Precision:   {precision:.4f}")
 print(f"Recall:      {recall:.4f}")
 print(f"F1 Score:    {f1:.4f}")
+
+
+
+##### Focal loss?
+
+class FocalLoss(torch.nn.Module):
+    def __init__(self, alpha=0.25, gamma=2):
+        super(FocalLoss, self).__init__()
+        self.alpha = alpha
+        self.gamma = gamma
+        self.bce = torch.nn.BCEWithLogitsLoss(reduction='none')
+
+    def forward(self, inputs, targets):
+        BCE_loss = self.bce(inputs, targets)
+        pt = torch.exp(-BCE_loss)
+        focal_loss = self.alpha * (1 - pt) ** self.gamma * BCE_loss
+        return focal_loss.mean()
