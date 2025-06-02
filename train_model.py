@@ -18,6 +18,7 @@ import datetime
 ## 5. refactor into neater code
 ## 6. fix leak in train/val split on annotator as well
 ## 7. with this little data, should I even use a CNN?
+## 8. add noise to the positives and re-add them into the sampler
 
 ## Attention: TODO check if use correct: PyTorch's Conv1d typically expects (batch_size, channels, sequence_length), so (batch_size, N, W) if N is your number of feature channels
 ############
@@ -29,7 +30,7 @@ train_window_size       = 45
 train_stride            = 1 # was 3
 train_neg_to_pos_ratio  = 1 # was 10
 train_balance_dataset   = True 
-train_jitter_max        = 3
+train_jitter_max        = 0
 train_reverse_positives = True # try setting to false to see what happens to performance TODO.
 learning_rate           = 1e-4 # was 1e-3
 
@@ -39,10 +40,9 @@ val_neg_to_pos_ratio    = 4
 val_balance_dataset     = False
 
 batch_size              = 32
-bce_pos_weight_factor   = 3 # was 350
+bce_pos_weight_factor   = 10 # was 350
 num_epochs              = 20
 ######ooo######
-
 
 # Misc Options
 save_model_weights=True
