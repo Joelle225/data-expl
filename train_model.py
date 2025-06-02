@@ -23,8 +23,11 @@ val_neg_to_pos_ratio    = 4
 val_balance_dataset     = False
 
 batch_size              = 32
-bce_pos_weight          = 70
+bce_pos_weight          = 350
 num_epochs              = 20
+
+# learning rate
+# step size
 
 # Misc Options
 save_model_weights=True
