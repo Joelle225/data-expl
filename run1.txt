@@ -1,0 +1,5 @@
+=== Ensemble Performance Across All Folds ===
+ROC AUC:     0.6992
+Precision:   0.0240
+Recall:      0.3489
+F1 Score:    0.0450

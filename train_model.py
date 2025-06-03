@@ -32,7 +32,7 @@ train_neg_to_pos_ratio  = 1 # was 10
 train_balance_dataset   = True 
 train_jitter_max        = 0
 train_reverse_positives = True # try setting to false to see what happens to performance TODO.
-learning_rate           = 1e-4 # was 1e-3
+learning_rate           = 3e-4 # was 1e-3
 
 val_window_size         = 45
 val_stride              = 1
@@ -68,9 +68,9 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 # print("Total samples:", sum(group_sizes))
 # exit()
 
-# Store out-of-fold predictions and labels
-all_val_preds = []
-all_val_labels = []
+# Store concatenated predictions and labels from each fold for final ensemble evaluation
+overall_scores_accumulated = []
+overall_labels_accumulated = []
 
 for fold, (train_idx, val_idx) in enumerate(kf.split(group_keys)):
     print(f"\n=== Fold {fold + 1}/{n_splits} ===")
@@ -93,6 +93,7 @@ for fold, (train_idx, val_idx) in enumerate(kf.split(group_keys)):
         jitter_max=train_jitter_max,
         reverse_positives=train_reverse_positives
     )
+    print(f"Training dataset size: {len(train_dataset)}")
 
     print("Loading validation set")
     val_dataset = SlidingWindowPoseDataset(
@@ -104,6 +105,7 @@ for fold, (train_idx, val_idx) in enumerate(kf.split(group_keys)):
         jitter_max=0,
         reverse_positives=False
     )
+    print(f"Validation dataset size: {len(val_dataset)}")
 
     # DataLoaders
     train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=4, pin_memory=True)
@@ -151,36 +153,82 @@ for fold, (train_idx, val_idx) in enumerate(kf.split(group_keys)):
         timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
         torch.save(model.state_dict(), f"cnn_model_fold{fold+1}_{timestamp}.pth")
 
+    # Eval model for this fold
     model.eval()
+    fold_batch_probs = [] # Store probabilities from each batch in this fold
+    fold_batch_labels = []  # Store true labels from each batch in this fold
     with torch.no_grad():
         for X_batch, y_batch in val_loader:
             X_batch = X_batch.to(device)
-            y_batch = y_batch.to(device)
+            # y_batch = y_batch.to(device)
 
-            logits = model(X_batch) #.squeeze(1)       # [B]
+            logits = model(X_batch)
             probs = torch.sigmoid(logits).cpu().numpy()
             labels = y_batch.cpu().numpy()
 
-            all_val_preds.append(probs)
-            all_val_labels.append(labels)
+            fold_batch_probs.append(probs)
+            fold_batch_labels.append(labels)
 
-# Concatenate all fold predictions
-y_true = np.concatenate(all_val_labels)
-y_scores = np.concatenate(all_val_preds)
+    # Concatenate all fold predictions
+    y_scores_this_fold = np.concatenate(fold_batch_probs)
+    y_true_this_fold = np.concatenate(fold_batch_labels)
 
-# Evaluate metrics
-roc_auc = roc_auc_score(y_true, y_scores)
-precision, recall, f1, _ = precision_recall_fscore_support(
-    y_true, y_scores > 0.5, average="binary"
-)
+    # Evaluate metrics
+    roc_auc_fold = roc_auc_score(y_true_this_fold, y_scores_this_fold)
+    precision_fold, recall_fold, f1_fold, _ = precision_recall_fscore_support(
+        y_true_this_fold, y_scores_this_fold > 0.5, average="binary", zero_division=0
+    )
+    print(f"\n--- Performance for Fold {fold + 1} ---")
+    print(f"ROC AUC:     {roc_auc_fold:.4f}")
+    print(f"Precision:   {precision_fold:.4f}")
+    print(f"Recall:      {recall_fold:.4f}")
+    print(f"F1 Score:    {f1_fold:.4f}")
 
-print("\n=== Ensemble Performance Across All Folds ===")
-print(f"ROC AUC:     {roc_auc:.4f}")
-print(f"Precision:   {precision:.4f}")
-print(f"Recall:      {recall:.4f}")
-print(f"F1 Score:    {f1:.4f}")
+    # Append results for overall ensemble calculation
+    overall_scores_accumulated.append(y_scores_this_fold)
+    overall_labels_accumulated.append(y_true_this_fold)
 
+# # Concatenate all fold predictions
+# y_true = np.concatenate(all_val_labels)
+# y_scores = np.concatenate(all_val_preds)
 
+# # Evaluate metrics
+# roc_auc = roc_auc_score(y_true, y_scores)
+# precision, recall, f1, _ = precision_recall_fscore_support(
+#     y_true, y_scores > 0.5, average="binary"
+# )
+
+# print("\n=== Ensemble Performance Across All Folds ===")
+# print(f"ROC AUC:     {roc_auc:.4f}")
+# print(f"Precision:   {precision:.4f}")
+# print(f"Recall:      {recall:.4f}")
+# print(f"F1 Score:    {f1:.4f}")
+
+# --- Overall Ensemble Performance Across All Folds ---
+if not overall_labels_accumulated:
+    print("\nNo validation results were accumulated across folds. Cannot compute overall ensemble performance.")
+else:
+    y_true_overall = np.concatenate(overall_labels_accumulated)
+    y_scores_overall = np.concatenate(overall_scores_accumulated)
+
+    # Free up memory from the lists of arrays
+    del overall_labels_accumulated
+    del overall_scores_accumulated
+
+    try:
+        roc_auc_overall = roc_auc_score(y_true_overall, y_scores_overall)
+        precision_overall, recall_overall, f1_overall, _ = precision_recall_fscore_support(
+            y_true_overall, y_scores_overall > 0.5, average="binary", zero_division=0
+        )
+
+        print("\n=== Overall Ensemble Performance Across All Folds ===")
+        print(f"ROC AUC:     {roc_auc_overall:.4f}")
+        print(f"Precision:   {precision_overall:.4f}")
+        print(f"Recall:      {recall_overall:.4f}")
+        print(f"F1 Score:    {f1_overall:.4f}")
+    except ValueError as e:
+        print(f"Could not calculate overall ensemble metrics: {e}")
+        print(f"Unique labels in overall val set: {np.unique(y_true_overall)}")
 
 ##### Focal loss?
 

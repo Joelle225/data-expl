@@ -106,7 +106,6 @@ def evaluate(model, dataloader, loss_fn, device):
 
     if len(all_true_labels) > 0:
         accuracy = (all_predicted_labels == all_true_labels).sum() / len(all_true_labels)
-        from sklearn.metrics import precision_recall_fscore_support
         p, r, f, _ = precision_recall_fscore_support(
             all_true_labels, all_predicted_labels, average='binary', pos_label=1, zero_division=0
         )
@@ -178,9 +177,9 @@ def train_model(model, train_loader, val_loader, optimizer, loss_fn, device, num
 
     for epoch in range(num_epochs):
         train_loss = train_one_epoch(model, train_loader, optimizer, loss_fn, device)
-        val_loss, val_acc, val_precision, val_recall, val_f1 = evaluate(model, val_loader, loss_fn, device)
+        # val_loss, val_acc, val_precision, val_recall, val_f1 = evaluate(model, val_loader, loss_fn, device)
 
         print(f"Epoch {epoch+1}/{num_epochs}")
         print(f"  Train Loss: {train_loss:.4f}")
-        print(f"  Val   Loss: {val_loss:.4f}, Accuracy: {val_acc:.4f}")
-        print(f"  Precision : {val_precision:.4f}, Recall: {val_recall:.4f}, F1: {val_f1:.4f}")
+        # print(f"  Val   Loss: {val_loss:.4f}, Accuracy: {val_acc:.4f}")
+        # print(f"  Precision : {val_precision:.4f}, Recall: {val_recall:.4f}, F1: {val_f1:.4f}")
