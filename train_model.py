@@ -12,13 +12,13 @@ import datetime
 # Knobs to turn for scikit-learn
 n_splits                = 5
 window_size             = 60 # Same for train/val with RF usually
-stride                  = 5
+stride                  = 2
 neg_to_pos_ratio        = 2 # Balancing for training data
 balance_dataset         = True
 reverse_positives       = False # Augmentation
 
 # RF Hyperparameters
-rf_n_estimators         = 100
+rf_n_estimators         = 1000
 rf_max_depth            = None
 rf_min_samples_split    = 2
 rf_min_samples_leaf     = 1
@@ -70,7 +70,6 @@ for fold, (train_group_indices, val_group_indices) in enumerate(kf.split(group_k
         sequences=val_sequences_pt,
         window_size=window_size,
         stride=stride, # Usually stride=1 for dense validation
-        neg_to_pos_ratio=1, # Irrelevant if balance=False
         balance=False,      # Evaluate on original (or differently balanced) validation distribution
         reverse_positives=False, # No augmentation for validation
         is_for_sklearn=True,

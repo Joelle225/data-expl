@@ -4,6 +4,47 @@ from torch.utils.data import Dataset
 import random
 from tqdm import tqdm
 
+def analyze_keypoint_movement(sequence, hand, nose_idx=1):
+    """
+    Calculates movement statistics for a keypoint relative to the nose (default index 0).
+    """
+    keypoint_coords = sequence[:, hand, :]
+    nose_coords = sequence[:, nose_idx, :]
+    # Calculate relative coordinates
+    rel_coords = keypoint_coords - nose_coords
+
+    # Check for sufficient data
+    if rel_coords.shape[0] < 2:
+        return {'mean_speed': 0, 'max_speed': 0, 'std_speed': 0, 'total_displacement': np.array([0,0])}
+
+    # Calculate displacements between consecutive frames (velocity vectors)
+    displacements = np.diff(rel_coords, axis=0)
+    # Calculate speed (magnitude of velocity) for each frame transition
+    speeds = np.linalg.norm(displacements, axis=1)
+    # Calculate total displacement from the start to the end of the window
+    start_pos = rel_coords[0]
+    end_pos = rel_coords[-1]
+    total_displacement_vector = end_pos - start_pos
+
+    movement_stats = {
+        'mean_speed': np.nanmean(speeds),
+        'max_speed': np.nanmax(speeds),
+        'std_speed': np.nanstd(speeds),
+        'total_displacement': total_displacement_vector
+    }
+    return movement_stats
+
+def calculate_angle(p1, p2, p3):
+    """Calculates the angle at point p2 formed by lines p1-p2 and p3-p2."""
+    v1 = p1 - p2
+    v2 = p3 - p2
+    dot_product = np.dot(v1, v2)
+    norm_product = np.linalg.norm(v1) * np.linalg.norm(v2)
+    if norm_product == 0: return np.nan # Avoid division by zero
+    cosine_angle = dot_product / norm_product
+    angle = np.arccos(np.clip(cosine_angle, -1.0, 1.0))
+    return np.degrees(angle)
+
 def calculate_distance_over_time(sequence, point1_idx, point2_idx):
         """
         Calculates the Euclidean distance between two keypoints for each frame in a sequence.
@@ -25,25 +66,12 @@ def calculate_distance_over_time(sequence, point1_idx, point2_idx):
         return np.linalg.norm(point1_coords - point2_coords, axis=1)
 
 def hand_to_mouth_min(window, hand):
-    distances = calculate_distance_over_time(sequence, hand_idx, mouth_idx)
-    # Use nanmax to be robust to frames where a keypoint might be missing (NaN)
-    return np.nanmax(distances)
-
-def hand_to_mouth_max(window, hand):
-    pass
-
-def max_hand_to_mouth_distance(sequence, hand_idx, mouth_idx):
-    """Computes the maximum distance between the hand and mouth in a sequence."""
-    distances = calculate_distance_over_time(sequence, hand_idx, mouth_idx)
-    # Use nanmax to be robust to frames where a keypoint might be missing (NaN)
-    return np.nanmax(distances)
-
-def min_hand_to_mouth_distance(sequence, hand_idx, mouth_idx):
-    """Computes the minimum distance between the hand and mouth in a sequence."""
-    distances = calculate_distance_over_time(sequence, hand_idx, mouth_idx)
-    # Use nanmin for robustness
+    distances = calculate_distance_over_time(window, hand, 1) # uses nose to approximate mouth
     return np.nanmin(distances)
 
+def hand_to_mouth_max(window, hand):
+    distances = calculate_distance_over_time(window, hand, 1)
+    return np.nanmax(distances)
 
 ### Class
 
@@ -74,12 +102,6 @@ class SlidingWindowPoseDataset(Dataset):
 
         pos_samples = []
         neg_samples = []
-        
-        # Define selected keypoints (head, shoulders, hands)
-        # Indices for COCO: 0 (nose), [2 (LShoulder), 3(RShoulder)] OR [5,6], 7(LElbow), 8(RElbow), 9(LWrist), 10(RWrist)
-        # Your original code used: 0, 2, 3, 7, 8. Let's assume these are Nose, LShoulder, RShoulder, LElbow, RElbow
-        # This gives 5 keypoints.
-        # self.select_keypoints = [0, 2, 3, 7, 8] # Ensure this matches your intended keypoints
 
         for seq in tqdm(sequences, desc="Initializing Dataset"):
             X_full_seq = seq['X']   # [T, 17, 2]
@@ -173,7 +195,18 @@ class SlidingWindowPoseDataset(Dataset):
         features.append(hand_to_mouth_min(window, 8))
         features.append(hand_to_mouth_max(window, 5))
         features.append(hand_to_mouth_max(window, 8))
-        features.append((window))
+
+        lhandspeeds = analyze_keypoint_movement(window, 8)
+        rhandspeeds = analyze_keypoint_movement(window, 5)
+
+        features.append(lhandspeeds['mean_speed'])
+        features.append(lhandspeeds['total_displacement'][0])
+        features.append(lhandspeeds['total_displacement'][1])
+        features.append(rhandspeeds['mean_speed'])
+        features.append(rhandspeeds['total_displacement'][0])
+        features.append(rhandspeeds['total_displacement'][1])
+
+        # features.append(())
             
         return np.array(features)
 
