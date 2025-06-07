@@ -3,3 +3,31 @@ ROC AUC:     0.6992
 Precision:   0.0240
 Recall:      0.3489
 F1 Score:    0.0450
+
+---
+# questions
+---
+
+little data: 110-40
+oversampling -> overlap
+step size 1
+reverse
+
+cnn ever reach good performance?
+research questions still bad?
+
+diff annotator drinking -> be specific on defining drinking
+
+justifications and stuff more important for thesis material
+
+maybe only seperate in terms of participant train/val splits, not whatever convoluted stuff i have now
+
+analysis on feature importance and select most important ones to justify
+
+positive chunk if more than a certain percent is positive instead of at least one frame?
+
+annotators really disagree on what is drinking, when it starts. Pickup drink phase, drink phase, set down glass phase.
+
+RQ phrasing to "on in the wild datasets" focuses more on the dataset so I can talk about how the dataset was realistically too small since people in the wild tend not to constantly drink.
+
+just switch to a simpler model
