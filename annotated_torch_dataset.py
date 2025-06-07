@@ -86,7 +86,8 @@ class SlidingWindowPoseDataset(Dataset):
         # jitter_max=5, # Jitter is complex with pre-extracted features, disable for RF
         reverse_positives=True, # Reversing raw data before feature extraction is valid
         seed=42,
-        is_for_sklearn=False # New flag
+        is_for_sklearn=False, # New flag
+        min_1_label=0.30
     ):
         self.window_size = window_size
         self.stride = stride
@@ -96,6 +97,7 @@ class SlidingWindowPoseDataset(Dataset):
         self.neg_to_pos_ratio = neg_to_pos_ratio
         self.samples = []
         self.is_for_sklearn = is_for_sklearn
+        self.min_1_label=min_1_label
 
         random.seed(seed)
         np.random.seed(seed)
@@ -117,7 +119,11 @@ class SlidingWindowPoseDataset(Dataset):
                 X_window_raw = X_full_seq[start:end] #[:, self.select_keypoints, :]
                 
                 Y_win_labels = Y_full_seq[start:end]
-                label = torch.any(Y_win_labels > 0).float() # TODO: maybe adjust when the label is one, e.g. >10% drinking frames?
+                # label = torch.any(Y_win_labels > 0).float() # TODO: maybe adjust when the label is one, e.g. >10% drinking frames?
+                positive_fraction = (Y_win_labels > 0).float().mean().item()
+                label = 1.0 if positive_fraction >= self.min_1_label else 0.0
+                label = torch.tensor(label, dtype=torch.float32)
+
                 label_np = label.item() # For scikit-learn
 
                 # Extract features if for scikit-learn

@@ -1,24 +1,22 @@
 from sklearn.model_selection import KFold
 from collections import defaultdict
-# Assuming your modified SlidingWindowPoseDataset is in annotated_torch_dataset.py
-from annotated_torch_dataset import SlidingWindowPoseDataset # Your modified dataset
+from annotated_torch_dataset import SlidingWindowPoseDataset 
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.metrics import roc_auc_score, precision_recall_fscore_support, accuracy_score
-import torch # Still needed for loading initial sequence_dataset
+import torch 
 import numpy as np
-import datetime
 
 ######ooo######
-# Knobs to turn for scikit-learn
+# Knobs
 n_splits                = 5
-window_size             = 60 # Same for train/val with RF usually
-stride                  = 2
+window_size             = 120 # Same for train/val with RF usually
+stride                  = 10
 neg_to_pos_ratio        = 2 # Balancing for training data
 balance_dataset         = True
 reverse_positives       = False # Augmentation
 
 # RF Hyperparameters
-rf_n_estimators         = 1000
+rf_n_estimators         = 300
 rf_max_depth            = None
 rf_min_samples_split    = 2
 rf_min_samples_leaf     = 1
