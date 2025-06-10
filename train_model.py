@@ -16,7 +16,7 @@ balance_dataset         = True
 reverse_positives       = False # Augmentation
 
 # RF Hyperparameters
-rf_n_estimators         = 300
+rf_n_estimators         = 5000
 rf_max_depth            = None
 rf_min_samples_split    = 2
 rf_min_samples_leaf     = 1
@@ -67,9 +67,9 @@ for fold, (train_group_indices, val_group_indices) in enumerate(kf.split(group_k
     val_dataset_sklearn = SlidingWindowPoseDataset(
         sequences=val_sequences_pt,
         window_size=window_size,
-        stride=stride, # Usually stride=1 for dense validation
-        balance=False,      # Evaluate on original (or differently balanced) validation distribution
-        reverse_positives=False, # No augmentation for validation
+        stride=stride,              # Usually stride=1 for dense validation
+        balance=False,              # Evaluate on original (or differently balanced) validation distribution
+        reverse_positives=False,    # No augmentation for validation
         is_for_sklearn=True,
         seed=100 + fold
     )
