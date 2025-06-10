@@ -29,10 +29,10 @@ except FileNotFoundError:
     exit()
 
 KEYPOINT_MAP = {
-    0: '0', 1: '1', 2: '2', 3: '3', 4: '4',
-    5: '5', 6: '6', 7: '7', 8: '8',
-    9: '9', 10: '10', 11: '11', 12: '12',
-    13: '13', 14: '14', 15: '15', 16: '16'
+    0: 'head', 1: 'nose', 2: 'neck', 3: 'rShoulder', 4: 'rElbow',
+    5: 'rWrist', 6: 'lShoulder', 7: 'lElbow', 8: 'lWrist',
+    9: 'rHip', 10: 'rKnee', 11: 'rAnkle', 12: 'lHip',
+    13: 'lKnee', 14: 'lAnkle', 15: 'rFoot', 16: 'lFoot'
 }
 
 for KEYPOINT_OF_INTEREST_IDX in range(len(KEYPOINT_MAP)):

@@ -31,6 +31,6 @@ def count_drinking_occurrences(dataset, tolerance=0):
     return total_occurrences
 
 dataset = torch.load(Path("./drinking_sequence_dataset.pth"))
-tolerance = 120
+tolerance = 60
 occurrences = count_drinking_occurrences(dataset, tolerance=tolerance)
 print(f"Total drinking occurrences (tolerance={tolerance}): {occurrences}")
