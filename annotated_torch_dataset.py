@@ -4,6 +4,34 @@ from torch.utils.data import Dataset
 import random
 from tqdm import tqdm
 
+KEYPOINT_MAP = {
+    0: 'head', 1: 'nose', 2: 'neck', 3: 'rShoulder', 4: 'rElbow',
+    5: 'rWrist', 6: 'lShoulder', 7: 'lElbow', 8: 'lWrist',
+    9: 'rHip', 10: 'rKnee', 11: 'rAnkle', 12: 'lHip',
+    13: 'lKnee', 14: 'lAnkle', 15: 'rFoot', 16: 'lFoot'
+}
+
+def calc_variance(window):
+    """
+    Args:
+        window: numpy array of shape [window_size, 17, 2]
+    Returns:
+        numpy array of shape [17, 2]: variance for each keypoint (horizontal, vertical)
+    """
+    # window: [window_size, 17, 2]
+    # Compute variance along the time axis (axis=0) for x and y separately
+    # Result: [17, 2] (keypoints, [var_x, var_y])
+    window_x = window[:, :, 0]
+    window_y = window[:, :, 1]
+    if np.isnan(window_x).any():
+        window_x = np.nan_to_num(window_x, nan=np.nanmean(window_x)) # If any are nan, set to mean of the current window
+
+    if np.isnan(window_y).any():
+        window_y = np.nan_to_num(window_y, nan=np.nanmean(window_y)) # If any are nan, set to mean of the current window
+
+    cleaned_window = np.stack([window_x, window_y], axis=2)  # shape: [window_size, 17, 2]
+    return np.var(cleaned_window, axis=0)
+
 def analyze_keypoint_movement(sequence, hand, nose_idx=1):
     """
     Calculates movement statistics for a keypoint relative to the nose (default index 0).
@@ -119,10 +147,10 @@ class SlidingWindowPoseDataset(Dataset):
                 X_window_raw = X_full_seq[start:end] #[:, self.select_keypoints, :]
                 
                 Y_win_labels = Y_full_seq[start:end]
-                # label = torch.any(Y_win_labels > 0).float() # TODO: maybe adjust when the label is one, e.g. >10% drinking frames?
-                positive_fraction = (Y_win_labels > 0).float().mean().item()
-                label = 1.0 if positive_fraction >= self.min_1_label else 0.0
-                label = torch.tensor(label, dtype=torch.float32)
+                label = torch.any(Y_win_labels > 0).float() # TODO: maybe adjust when the label is one, e.g. >10% drinking frames?
+                # positive_fraction = (Y_win_labels > 0).float().mean().item() # uncomment this for the behavior where a portion at least needs to be drinking
+                # label = 1.0 if positive_fraction >= self.min_1_label else 0.0
+                # label = torch.tensor(label, dtype=torch.float32)
 
                 label_np = label.item() # For scikit-learn
 
@@ -212,9 +240,61 @@ class SlidingWindowPoseDataset(Dataset):
         features.append(rhandspeeds['total_displacement'][0])
         features.append(rhandspeeds['total_displacement'][1])
 
+        variances = calc_variance(window)
+
+        # features.append((variances[0, 0] + variances[2, 0]) * 0.5) # horizontal variance of multiple keypoints (neck & nose)
+        # features.append((variances[0, 1] + variances[2, 1]) * 0.5) # vertical variance of multiple keypoints
+
+        # features.append((variances[12, 0] + variances[9, 0]) * 0.5) # horizontal variance of multiple keypoints (rhip & lhip)
+        # features.append((variances[12, 1] + variances[9, 1]) * 0.5) # vertical variance of multiple keypoints
+
+        # features.append((variances[12, 0] + variances[9, 0]) * 0.5) # horizontal variance of multiple keypoints (lwrist & rwrist)
+        # features.append((variances[12, 1] + variances[9, 1]) * 0.5) # vertical variance of multiple keypoints
+
+        features.append(variances.flatten())
+
+        # TODO: angles: rShoulder-rElbow-rWrist and lShoulder-lElbow-lWrist 
         # features.append(())
+
+        right_arm_angles = []
+        left_arm_angles = []
+        
+        # Calculate angle for each frame in the window
+        for frame_coords in window: # frame_coords is [17, 2]
+            # Right Arm: rShoulder (3) - rElbow (4) - rWrist (5)
+            p1_r, p2_r, p3_r = frame_coords[3], frame_coords[4], frame_coords[5]
+            right_angle = calculate_angle(p1_r, p2_r, p3_r)
+            if not np.isnan(right_angle):
+                right_arm_angles.append(right_angle)
+
+            # Left Arm: lShoulder (6) - lElbow (7) - lWrist (8)
+            p1_l, p2_l, p3_l = frame_coords[6], frame_coords[7], frame_coords[8]
+            left_angle = calculate_angle(p1_l, p2_l, p3_l)
+            if not np.isnan(left_angle):
+                left_arm_angles.append(left_angle)
+
+        # Add summary statistics of the angles as features
+        # Use np.nanmean etc. in case some frames had missing keypoints
+        features.append(np.mean(right_arm_angles) if right_arm_angles else 0)
+        features.append(np.std(right_arm_angles) if right_arm_angles else 0)
+        features.append(np.min(right_arm_angles) if right_arm_angles else 0)
+        features.append(np.max(right_arm_angles) if right_arm_angles else 0)
+        
+        features.append(np.mean(left_arm_angles) if left_arm_angles else 0)
+        features.append(np.std(left_arm_angles) if left_arm_angles else 0)
+        features.append(np.min(left_arm_angles) if left_arm_angles else 0)
+        features.append(np.max(left_arm_angles) if left_arm_angles else 0)
+
+        # --- Targeted Variance Features (More effective than flatten) ---
+        # variances = calc_variance(window)
+        # # Get variance for hands, head, and shoulders
+        # features.append(variances[5, 1]) # Vertical variance of rWrist
+        # features.append(variances[8, 1]) # Vertical variance of lWrist
+        # features.append(variances[0, 1]) # Vertical variance of head
+        # features.append(variances[3, 1]) # Vertical variance of rShoulder
+        # features.append(variances[6, 1]) # Vertical variance of lShoulder
             
-        return np.array(features)
+        return np.array(features, dtype=np.float32)
 
     def __len__(self):
         return len(self.samples)
@@ -230,5 +310,5 @@ class SlidingWindowPoseDataset(Dataset):
             return X_data, Y_data # Y_data is already a float 0.0 or 1.0
         else:
             # Original PyTorch tensor handling
-            return X_data.nan_to_num(nan=1.0), torch.tensor(Y_data).nan_to_num(nan=1.0)
+            return X_data.nan_to_num(nan=0.0), torch.tensor(Y_data).nan_to_num(nan=0.0)
 

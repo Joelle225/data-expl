@@ -10,9 +10,9 @@ import numpy as np
 # Knobs
 n_splits                = 5
 window_size             = 120 # Same for train/val with RF usually
-stride                  = 10
+stride                  = 20
 neg_to_pos_ratio        = 2 # Balancing for training data
-balance_dataset         = True
+balance_dataset         = False
 reverse_positives       = False # Augmentation
 
 # RF Hyperparameters
@@ -190,3 +190,5 @@ else:
     except ValueError as e:
         print(f"Could not calculate overall ensemble metrics: {e}")
         print(f"Unique labels in overall val set: {np.unique(y_true_overall)}")
+
+# TODO : Select optimal classification threshold for best F1 score dynamically
