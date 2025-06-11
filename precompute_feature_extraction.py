@@ -5,7 +5,7 @@ from tqdm import tqdm
 from collections import defaultdict
 
 window_size = 90
-step_size = 1
+step_size = 20
 
 # Before running this file, dataset[] will look as follows:
 # Each entry is a dict: 
@@ -29,7 +29,7 @@ step_size = 1
 #   X: [M,N], Y: [M], meta: identifiers + frame list
 # Here M is the amount of new train/test items and depends on the window size and step size used
 
-extr_feature_set = defaultdict(list)
+extr_feature_set = []
 
 KEYPOINT_MAP = {
     0: 'head', 1: 'nose', 2: 'neck', 3: 'rShoulder', 4: 'rElbow',
@@ -217,8 +217,8 @@ for entry in tqdm(dataset, desc="Extracting features..."):
         
         # 3. Store the results in the defaultdict
         # This appends each result to the appropriate list within the dictionary
-        extr_feature_set['X'].append(features)
-        extr_feature_set['Y'].append(label)
+        # extr_feature_set['X'].append(features)
+        # extr_feature_set['Y'].append(label)
         
         # Create and store metadata for this specific window
         window_meta = {
@@ -227,7 +227,14 @@ for entry in tqdm(dataset, desc="Extracting features..."):
             'end_frame_idx': end_idx - 1,
             'original_frames_list': meta['frames'][start_idx:end_idx]
         }
-        extr_feature_set['meta'].append(window_meta)
+
+        final = {
+            'X': features,
+            'Y': label,
+            'meta':window_meta
+        }
+
+        extr_feature_set.append(final)
 
 output_path = Path("./extracted_drinking_sequence_dataset_features.pth")
 torch.save(extr_feature_set, output_path)

@@ -7,16 +7,16 @@ import torch
 import numpy as np
 
 ######ooo######
-# Knobs
+# Misc. Knobs
 n_splits                = 5
 window_size             = 120 # Same for train/val with RF usually
 stride                  = 20
-neg_to_pos_ratio        = 2 # Balancing for training data
-balance_dataset         = False
+neg_to_pos_ratio        = 1 # Balancing for training data
+balance_dataset         = True
 reverse_positives       = False # Augmentation
 
 # RF Hyperparameters
-rf_n_estimators         = 5000
+rf_n_estimators         = 1000
 rf_max_depth            = None
 rf_min_samples_split    = 2
 rf_min_samples_leaf     = 1
@@ -24,9 +24,13 @@ rf_class_weight         = "balanced" # Handles imbalance within RF
 ######ooo######
 
 # Load initial PyTorch sequence dataset
-sequence_dataset_pt = torch.load("./drinking_sequence_dataset.pth")
+sequence_dataset_pt = torch.load("./extracted_drinking_sequence_dataset_features.pth", weights_only=False)
 
-# Group sequences by participant-video-segment, not by camera and annotator
+# Group sequences by participant-video-segment, not by camera and annotator, TODO try with this disabled?
+# TODO fix with new dataset this still works
+# TODO alter dataset to serve windows new or smtn idfk
+# TODO dynamic decision threshold in final calcs
+# TODO maybe remove all null data?
 grouped = defaultdict(list)
 for idx, seq in enumerate(sequence_dataset_pt):
     meta = seq['meta']
