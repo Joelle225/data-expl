@@ -4,8 +4,8 @@ import numpy as np
 from tqdm import tqdm
 from collections import defaultdict
 
-window_size = 60
-step_size = 20
+window_size = 50
+step_size = 5
 
 # Before running this file, dataset[] will look as follows:
 # Each entry is a dict: 
@@ -154,7 +154,7 @@ def extract_features(window):
     features.append(rhandspeeds['total_displacement'][0])
     features.append(rhandspeeds['total_displacement'][1])
 
-    variances = calc_variance(window)
+    variances = calc_variance(window) # 2, 3, 6, 7, 8, 9, 10, 12, 13, 15, 16
 
     features.extend(variances.flatten())
 

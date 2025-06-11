@@ -9,17 +9,14 @@ import numpy as np
 ######ooo######
 # Misc. Knobs
 n_splits                = 5
-window_size             = 120 # Same for train/val with RF usually
-stride                  = 20
 neg_to_pos_ratio        = 2 # Balancing for training data
 balance_dataset         = True
-reverse_positives       = False # Augmentation
 
 # RF Hyperparameters
-rf_n_estimators         = 1000
+rf_n_estimators         = 3000
 rf_max_depth            = None
-rf_min_samples_split    = 2
-rf_min_samples_leaf     = 1
+rf_min_samples_split    = 8
+rf_min_samples_leaf     = 12
 rf_class_weight         = "balanced" # Handles imbalance within RF
 ######ooo######
 
@@ -56,11 +53,8 @@ for fold, (train_group_indices, val_group_indices) in enumerate(kf.split(group_k
     print("Loading and featurizing training set for scikit-learn...")
     train_dataset = SlidingWindowPoseDataset(
         sequences=train_sequences_pt,
-        window_size=window_size,
-        stride=stride,
         neg_to_pos_ratio=neg_to_pos_ratio,
         balance=balance_dataset,
-        reverse_positives=reverse_positives,
         is_for_sklearn=True,
         seed=42 + fold
     )
@@ -69,8 +63,6 @@ for fold, (train_group_indices, val_group_indices) in enumerate(kf.split(group_k
     print("Loading and featurizing validation set for scikit-learn...")
     val_dataset_sklearn = SlidingWindowPoseDataset(
         sequences=val_sequences_pt,
-        window_size=window_size,
-        stride=window_size,              # Usually stride=1 for dense validation
         balance=False,              # Evaluate on original (or differently balanced) validation distribution
         reverse_positives=False,    # No augmentation for validation
         neg_to_pos_ratio=2,

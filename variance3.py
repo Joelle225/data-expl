@@ -26,10 +26,15 @@ def calc_variance(window):
     window_x = window[:, :, 0]
     window_y = window[:, :, 1]
     if np.isnan(window_x).any():
-        window_x = np.nan_to_num(window_x, nan=np.nanmean(window_x)) # If any are nan, set to mean of the current window
+        # Calculate mean along the time axis for each keypoint
+        mean_per_keypoint_x = np.nanmean(window_x, axis=0)  # shape [17]
+        nan_indices_x = np.where(np.isnan(window_x))        # replace nan's
+        window_x[nan_indices_x] = np.take(mean_per_keypoint_x, nan_indices_x[1])
 
     if np.isnan(window_y).any():
-        window_y = np.nan_to_num(window_y, nan=np.nanmean(window_y)) # If any are nan, set to mean of the current window
+        mean_per_keypoint_y = np.nanmean(window_y, axis=0)
+        nan_indices_y = np.where(np.isnan(window_y))
+        window_y[nan_indices_y] = np.take(mean_per_keypoint_y, nan_indices_y[1])
 
     cleaned_window = np.stack([window_x, window_y], axis=2)  # shape: [window_size, 17, 2]
     return np.var(cleaned_window, axis=0)
