@@ -109,7 +109,7 @@ class SlidingWindowPoseDataset(Dataset):
         sequences,
         window_size=45,
         stride=1,
-        neg_to_pos_ratio=3,
+        neg_to_pos_ratio=4,
         balance=True,
         # jitter_max=5, # Jitter is complex with pre-extracted features, disable for RF
         reverse_positives=True, # Reversing raw data before feature extraction is valid
@@ -251,7 +251,7 @@ class SlidingWindowPoseDataset(Dataset):
         # features.append((variances[12, 0] + variances[9, 0]) * 0.5) # horizontal variance of multiple keypoints (lwrist & rwrist)
         # features.append((variances[12, 1] + variances[9, 1]) * 0.5) # vertical variance of multiple keypoints
 
-        features.append(variances.flatten())
+        features.extend(variances.flatten())
 
         # TODO: angles: rShoulder-rElbow-rWrist and lShoulder-lElbow-lWrist 
         # features.append(())
@@ -293,7 +293,7 @@ class SlidingWindowPoseDataset(Dataset):
         # features.append(variances[0, 1]) # Vertical variance of head
         # features.append(variances[3, 1]) # Vertical variance of rShoulder
         # features.append(variances[6, 1]) # Vertical variance of lShoulder
-            
+        
         return np.array(features, dtype=np.float32)
 
     def __len__(self):

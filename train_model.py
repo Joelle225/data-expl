@@ -67,12 +67,14 @@ for fold, (train_group_indices, val_group_indices) in enumerate(kf.split(group_k
     val_dataset_sklearn = SlidingWindowPoseDataset(
         sequences=val_sequences_pt,
         window_size=window_size,
-        stride=stride,              # Usually stride=1 for dense validation
+        stride=window_size,              # Usually stride=1 for dense validation
         balance=False,              # Evaluate on original (or differently balanced) validation distribution
         reverse_positives=False,    # No augmentation for validation
+        neg_to_pos_ratio=2,
         is_for_sklearn=True,
         seed=100 + fold
     )
+    
     print(f"Validation dataset size (sklearn): {len(val_dataset_sklearn)}")
 
     if len(train_dataset_sklearn) == 0:
