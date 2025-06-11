@@ -4,7 +4,7 @@ import numpy as np
 from tqdm import tqdm
 from collections import defaultdict
 
-window_size = 90
+window_size = 60
 step_size = 20
 
 # Before running this file, dataset[] will look as follows:
@@ -28,6 +28,8 @@ step_size = 20
 # Each entry is a dict: 
 #   X: [M,N], Y: [M], meta: identifiers + frame list
 # Here M is the amount of new train/test items and depends on the window size and step size used
+
+# TODO normalize?
 
 extr_feature_set = []
 

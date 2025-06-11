@@ -60,11 +60,7 @@ class SlidingWindowPoseDataset(Dataset):
         X_data = sample['X']
         Y_data = sample['Y']
 
-        if self.is_for_sklearn:
-            # Features are already NumPy arrays, replace NaNs if any
-            X_data = np.nan_to_num(X_data, nan=0.0, posinf=0.0, neginf=0.0) # RF can't handle NaNs
-            return X_data, Y_data # Y_data is already a float 0.0 or 1.0
-        else:
-            # Original PyTorch tensor handling
-            return X_data.nan_to_num(nan=0.0), torch.tensor(Y_data).nan_to_num(nan=0.0)
+        # Features are already NumPy arrays, replace NaNs if any
+        X_data = np.nan_to_num(X_data, nan=0.0, posinf=0.0, neginf=0.0) # RF can't handle NaNs
+        return X_data, Y_data # Y_data is already a float 0.0 or 1.0
 
