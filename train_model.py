@@ -6,7 +6,7 @@ from cnn import DrinkingCNN, train_model
 import torch
 # from torch import nn
 import numpy as np
-from sklearn.metrics import roc_auc_score, precision_recall_fscore_support
+from sklearn.metrics import roc_auc_score, precision_recall_fscore_support, f1_score, accuracy_score
 import datetime
 
 ############
@@ -27,22 +27,22 @@ import datetime
 ######ooo######
 # Knobs to turn: 
 n_splits                = 5
-train_window_size       = 50
+train_window_size       = 200
 train_stride            = 20 # was 3
-train_neg_to_pos_ratio  = 1 # was 10
+train_neg_to_pos_ratio  = 2 # was 10
 train_balance_dataset   = True 
 train_jitter_max        = 0
 train_reverse_positives = False # try setting to false to see what happens to performance TODO.
 learning_rate           = 3e-4 # was 1e-3
 
-val_window_size         = 50
-val_stride              = 10
-val_neg_to_pos_ratio    = 4
+val_window_size         = train_window_size # for now keep the same
+val_stride              = 20
+val_neg_to_pos_ratio    = 4                 # irrellevant
 val_balance_dataset     = False
 
 batch_size              = 32
 bce_pos_weight_factor   = 10 # was 350
-num_epochs              = 20
+num_epochs              = 15
 ######ooo######
 
 # Misc Options
@@ -69,9 +69,9 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 # print("Total samples:", sum(group_sizes))
 # exit()
 
-# Store concatenated predictions and labels from each fold for final ensemble evaluation
-overall_scores_accumulated = []
-overall_labels_accumulated = []
+# Store out-of-fold predictions and labels for overall ensemble evaluation
+overall_y_scores_accumulated = [] # Probabilities for positive class
+overall_y_labels_accumulated = []
 
 for fold, (train_idx, val_idx) in enumerate(kf.split(group_keys)):
     print(f"\n=== Fold {fold + 1}/{n_splits} ===")
@@ -186,47 +186,58 @@ for fold, (train_idx, val_idx) in enumerate(kf.split(group_keys)):
     print(f"F1 Score:    {f1_fold:.4f}")
 
     # Append results for overall ensemble calculation
-    overall_scores_accumulated.append(y_scores_this_fold)
-    overall_labels_accumulated.append(y_true_this_fold)
-
-# # Concatenate all fold predictions
-# y_true = np.concatenate(all_val_labels)
-# y_scores = np.concatenate(all_val_preds)
-
-# # Evaluate metrics
-# roc_auc = roc_auc_score(y_true, y_scores)
-# precision, recall, f1, _ = precision_recall_fscore_support(
-#     y_true, y_scores > 0.5, average="binary"
-# )
-
-# print("\n=== Ensemble Performance Across All Folds ===")
-# print(f"ROC AUC:     {roc_auc:.4f}")
-# print(f"Precision:   {precision:.4f}")
-# print(f"Recall:      {recall:.4f}")
-# print(f"F1 Score:    {f1:.4f}")
+    overall_y_scores_accumulated.append(y_scores_this_fold)
+    overall_y_labels_accumulated.append(y_true_this_fold)
 
 # --- Overall Ensemble Performance Across All Folds ---
-if not overall_labels_accumulated:
-    print("\nNo validation results were accumulated across folds. Cannot compute overall ensemble performance.")
+if not overall_y_labels_accumulated:
+    print("\nNo validation results were accumulated. Cannot compute overall ensemble performance.")
 else:
-    y_true_overall = np.concatenate(overall_labels_accumulated)
-    y_scores_overall = np.concatenate(overall_scores_accumulated)
+    y_true_overall = np.concatenate(overall_y_labels_accumulated)
+    y_scores_overall = np.concatenate(overall_y_scores_accumulated)
 
-    # Free up memory from the lists of arrays
-    del overall_labels_accumulated
-    del overall_scores_accumulated
+    # Free up memory
+    del overall_y_labels_accumulated
+    del overall_y_scores_accumulated
 
     try:
+        thresholds = np.arange(0.0, 1.0, 0.01)
+        f1_scores = [f1_score(y_true_overall, (y_scores_overall >= t).astype(int), zero_division=0) for t in thresholds]
+        
+        best_threshold_idx = np.argmax(f1_scores)
+        best_threshold = thresholds[best_threshold_idx]
+        best_f1_score = f1_scores[best_threshold_idx]
+        
+        print("\n--- Optimal Threshold Search ---")
+        print(f"Best threshold found: {best_threshold:.2f}")
+        print(f"This threshold yields a maximum F1 score of: {best_f1_score:.4f}")
+
+        # For P/R/F1, convert scores to binary predictions using the *optimal* threshold 
+        y_preds_overall = (y_scores_overall >= best_threshold).astype(int)
+        
+        # Calculate final metrics using the optimal threshold
         roc_auc_overall = roc_auc_score(y_true_overall, y_scores_overall)
+        accuracy_overall = accuracy_score(y_true_overall, y_preds_overall)
         precision_overall, recall_overall, f1_overall, _ = precision_recall_fscore_support(
-            y_true_overall, y_scores_overall > 0.5, average="binary", zero_division=0
+            y_true_overall, y_preds_overall, average="binary", zero_division=0
         )
 
-        print("\n=== Overall Ensemble Performance Across All Folds ===")
-        print(f"ROC AUC:     {roc_auc_overall:.4f}")
-        print(f"Precision:   {precision_overall:.4f}")
-        print(f"Recall:      {recall_overall:.4f}")
-        print(f"F1 Score:    {f1_overall:.4f}")
+        # Calculate percentages
+        num_total = len(y_preds_overall)
+        num_pos = np.sum(y_preds_overall)
+        num_neg = num_total - num_pos
+        percent_pos = 100.0 * num_pos / num_total if num_total > 0 else 0
+        percent_neg = 100.0 * num_neg / num_total if num_total > 0 else 0
+
+        print("\n=== Overall Ensemble Performance (at Optimal Threshold) ===")
+        print(f"ROC AUC:             {roc_auc_overall:.4f}")
+        print(f"Accuracy:            {accuracy_overall:.4f}")
+        print(f"Precision:           {precision_overall:.4f}")
+        print(f"Recall:              {recall_overall:.4f}")
+        print(f"F1 Score (verified): {f1_overall:.4f}")
+        print(f"Predicted Positives: {num_pos} ({percent_pos:.2f}%)")
+        print(f"Predicted Negatives: {num_neg} ({percent_neg:.2f}%)")
+
     except ValueError as e:
         print(f"Could not calculate overall ensemble metrics: {e}")
         print(f"Unique labels in overall val set: {np.unique(y_true_overall)}")
