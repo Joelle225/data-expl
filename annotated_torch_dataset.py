@@ -39,7 +39,7 @@ class SlidingWindowPoseDataset(Dataset):
             for start in range(0, T - window_size + 1, stride):
                 end = start + window_size
                 Y_win = Y[start:end]
-                label = (Y_win.float().mean() >= 0.65).float()
+                label = (Y_win.float().mean() >= 0.6).float()
 
                 if label == 0 and torch.any(Y_win > 0): #if overall label is 0, and there are positive labels in this window, discard, only use fully zero drinking windows for negatives during training
                     continue

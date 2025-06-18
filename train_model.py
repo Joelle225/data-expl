@@ -150,9 +150,9 @@ for fold, (train_idx, val_idx) in enumerate(kf.split(group_keys)):
     # Save weights per fold
     # if save_model_weights: 
     #     torch.save(model.state_dict(), f"cnn_model_fold{fold+1}.pth")
-    if save_model_weights:
-        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-        torch.save(model.state_dict(), f"cnn_model_fold{fold+1}_{timestamp}.pth")
+    # if save_model_weights:
+    #     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    #     torch.save(model.state_dict(), f"cnn_model_fold{fold+1}_{timestamp}.pth")
 
     # Eval model for this fold
     model.eval()
