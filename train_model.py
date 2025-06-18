@@ -11,42 +11,48 @@ import datetime
 
 ############
 ### TODO's
-## 1. array size too big
-## 2. step size to erratic/big
-## 3. feature extraction
+## *1. array size too big
+## *2. step size to erratic/big
+## *3. feature extraction
 ## *4. TQDM in data init
 ## 5. refactor into neater code
-## 6. fix leak in train/val split on annotator as well
-## 7. with this little data, should I even use a CNN?
-## 8. add noise to the positives and re-add them into the sampler
+## *6. fix leak in train/val split on annotator as well
+## -7. with this little data, should I even use a CNN?
+## -8. add noise to the positives and re-add them into the sampler
 # TODO try gigantic window size
 
 ## Attention: TODO check if use correct: PyTorch's Conv1d typically expects (batch_size, channels, sequence_length), so (batch_size, N, W) if N is your number of feature channels
 ############
 
+# Store metrics from each fold
+all_roc_aucs = []
+all_precisions = []
+all_recalls = []
+all_f1s = []
+
 ######ooo######
 # Knobs to turn: 
-n_splits                = 5
+n_splits                = 3
 train_window_size       = 200
 train_stride            = 20 # was 3
 train_neg_to_pos_ratio  = 2 # was 10
 train_balance_dataset   = True 
 train_jitter_max        = 0
 train_reverse_positives = False # try setting to false to see what happens to performance TODO.
-learning_rate           = 3e-4 # was 1e-3
+learning_rate           = 5e-4 # was 1e-3
 
 val_window_size         = train_window_size # for now keep the same
-val_stride              = 20
+val_stride              = 5
 val_neg_to_pos_ratio    = 4                 # irrellevant
 val_balance_dataset     = False
 
 batch_size              = 32
 bce_pos_weight_factor   = 10 # was 350
-num_epochs              = 15
+num_epochs              = 20
 ######ooo######
 
 # Misc Options
-save_model_weights=True
+save_model_weights=False
 
 # Load dataset
 sequence_dataset = torch.load("./drinking_sequence_dataset.pth")
@@ -150,35 +156,60 @@ for fold, (train_idx, val_idx) in enumerate(kf.split(group_keys)):
     # Save weights per fold
     # if save_model_weights: 
     #     torch.save(model.state_dict(), f"cnn_model_fold{fold+1}.pth")
-    # if save_model_weights:
-    #     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-    #     torch.save(model.state_dict(), f"cnn_model_fold{fold+1}_{timestamp}.pth")
+    if save_model_weights:
+        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        torch.save(model.state_dict(), f"cnn_model_fold{fold+1}_{timestamp}.pth")
 
-    # Eval model for this fold
+    # --- Find the optimal threshold on the TRAINING data ---
     model.eval()
-    fold_batch_probs = [] # Store probabilities from each batch in this fold
-    fold_batch_labels = []  # Store true labels from each batch in this fold
+    train_probs_for_threshold = []
+    train_labels_for_threshold = []
+    with torch.no_grad():
+        # Note: Because of the lack of data we compromise and use training data to determine optimal f1 so there is no leakage (shouldn't do this on val set)
+        for X_batch, y_batch in train_loader:
+            X_batch = X_batch.to(device)
+            logits = model(X_batch)
+            probs = torch.sigmoid(logits).cpu().numpy()
+            train_probs_for_threshold.append(probs)
+            train_labels_for_threshold.append(y_batch.cpu().numpy())
+
+    train_probs_for_threshold = np.concatenate(train_probs_for_threshold)
+    train_labels_for_threshold = np.concatenate(train_labels_for_threshold)
+
+    thresholds = np.arange(0.0, 1.0, 0.01)
+    f1_scores = [f1_score(train_labels_for_threshold, (train_probs_for_threshold >= t).astype(int), zero_division=0) for t in thresholds]
+    best_threshold = thresholds[np.argmax(f1_scores)]
+    print(f"Best threshold for this fold (from training data): {best_threshold:.2f}")
+
+
+    # --- Evaluate on the VALIDATION data using the determined threshold ---
+    y_scores_this_fold = []
+    y_true_this_fold = []
     with torch.no_grad():
         for X_batch, y_batch in val_loader:
             X_batch = X_batch.to(device)
-            # y_batch = y_batch.to(device)
-
             logits = model(X_batch)
             probs = torch.sigmoid(logits).cpu().numpy()
-            labels = y_batch.cpu().numpy()
+            y_scores_this_fold.append(probs)
+            y_true_this_fold.append(y_batch.cpu().numpy())
 
-            fold_batch_probs.append(probs)
-            fold_batch_labels.append(labels)
+    y_scores_this_fold = np.concatenate(y_scores_this_fold)
+    y_true_this_fold = np.concatenate(y_true_this_fold)
 
-    # Concatenate all fold predictions
-    y_scores_this_fold = np.concatenate(fold_batch_probs)
-    y_true_this_fold = np.concatenate(fold_batch_labels)
+    # Now, use the best_threshold to calculate metrics for this fold
+    y_pred_this_fold = (y_scores_this_fold >= best_threshold).astype(int)
 
-    # Evaluate metrics
     roc_auc_fold = roc_auc_score(y_true_this_fold, y_scores_this_fold)
     precision_fold, recall_fold, f1_fold, _ = precision_recall_fscore_support(
-        y_true_this_fold, y_scores_this_fold > 0.5, average="binary", zero_division=0
+        y_true_this_fold, y_pred_this_fold, average="binary", zero_division=0
     )
+
+    if not np.isnan(roc_auc_fold): all_roc_aucs.append(roc_auc_fold)
+    else : print("Warn: NaN roc_auc detected!")
+    all_precisions.append(precision_fold)
+    all_recalls.append(recall_fold)
+    all_f1s.append(f1_fold)
+
     print(f"\n--- Performance for Fold {fold + 1} ---")
     print(f"ROC AUC:     {roc_auc_fold:.4f}")
     print(f"Precision:   {precision_fold:.4f}")
@@ -186,61 +217,20 @@ for fold, (train_idx, val_idx) in enumerate(kf.split(group_keys)):
     print(f"F1 Score:    {f1_fold:.4f}")
 
     # Append results for overall ensemble calculation
+    # It's better to store predictions and evaluate at the end.
     overall_y_scores_accumulated.append(y_scores_this_fold)
     overall_y_labels_accumulated.append(y_true_this_fold)
 
-# --- Overall Ensemble Performance Across All Folds ---
-if not overall_y_labels_accumulated:
-    print("\nNo validation results were accumulated. Cannot compute overall ensemble performance.")
-else:
-    y_true_overall = np.concatenate(overall_y_labels_accumulated)
-    y_scores_overall = np.concatenate(overall_y_scores_accumulated)
 
-    # Free up memory
-    del overall_y_labels_accumulated
-    del overall_y_scores_accumulated
+# (After the loop has finished)
 
-    try:
-        thresholds = np.arange(0.0, 1.0, 0.01)
-        f1_scores = [f1_score(y_true_overall, (y_scores_overall >= t).astype(int), zero_division=0) for t in thresholds]
-        
-        best_threshold_idx = np.argmax(f1_scores)
-        best_threshold = thresholds[best_threshold_idx]
-        best_f1_score = f1_scores[best_threshold_idx]
-        
-        print("\n--- Optimal Threshold Search ---")
-        print(f"Best threshold found: {best_threshold:.2f}")
-        print(f"This threshold yields a maximum F1 score of: {best_f1_score:.4f}")
+# --- Overall Performance Across All Folds ---
 
-        # For P/R/F1, convert scores to binary predictions using the *optimal* threshold 
-        y_preds_overall = (y_scores_overall >= best_threshold).astype(int)
-        
-        # Calculate final metrics using the optimal threshold
-        roc_auc_overall = roc_auc_score(y_true_overall, y_scores_overall)
-        accuracy_overall = accuracy_score(y_true_overall, y_preds_overall)
-        precision_overall, recall_overall, f1_overall, _ = precision_recall_fscore_support(
-            y_true_overall, y_preds_overall, average="binary", zero_division=0
-        )
-
-        # Calculate percentages
-        num_total = len(y_preds_overall)
-        num_pos = np.sum(y_preds_overall)
-        num_neg = num_total - num_pos
-        percent_pos = 100.0 * num_pos / num_total if num_total > 0 else 0
-        percent_neg = 100.0 * num_neg / num_total if num_total > 0 else 0
-
-        print("\n=== Overall Ensemble Performance (at Optimal Threshold) ===")
-        print(f"ROC AUC:             {roc_auc_overall:.4f}")
-        print(f"Accuracy:            {accuracy_overall:.4f}")
-        print(f"Precision:           {precision_overall:.4f}")
-        print(f"Recall:              {recall_overall:.4f}")
-        print(f"F1 Score (verified): {f1_overall:.4f}")
-        print(f"Predicted Positives: {num_pos} ({percent_pos:.2f}%)")
-        print(f"Predicted Negatives: {num_neg} ({percent_neg:.2f}%)")
-
-    except ValueError as e:
-        print(f"Could not calculate overall ensemble metrics: {e}")
-        print(f"Unique labels in overall val set: {np.unique(y_true_overall)}")
+print("\n--- Overall Cross-Validation Performance ---")
+print(f"Average ROC AUC: {np.mean(all_roc_aucs):.4f} (+/- {np.std(all_roc_aucs):.4f})")
+print(f"Average Precision: {np.mean(all_precisions):.4f} (+/- {np.std(all_precisions):.4f})")
+print(f"Average Recall:    {np.mean(all_recalls):.4f} (+/- {np.std(all_recalls):.4f})")
+print(f"Average F1 Score:  {np.mean(all_f1s):.4f} (+/- {np.std(all_f1s):.4f})")
 
 ##### Focal loss?
 
