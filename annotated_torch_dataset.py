@@ -45,7 +45,7 @@ class SlidingWindowPoseDataset(Dataset):
                     continue
 
                 select_keypoints = [1, 2, 3, 5, 6, 8, 9, 12] # selects head shoulders and hands
-                newX = X[start:end][:, select_keypoints, :]
+                newX = X[start:end]#TODO re-enable? [:, select_keypoints, :]
                 sample = {
                     'X': newX,      
                     'Y': label,              # float (0.0 or 1.0)
