@@ -19,6 +19,7 @@ import datetime
 ## 6. fix leak in train/val split on annotator as well
 ## 7. with this little data, should I even use a CNN?
 ## 8. add noise to the positives and re-add them into the sampler
+# TODO try gigantic window size
 
 ## Attention: TODO check if use correct: PyTorch's Conv1d typically expects (batch_size, channels, sequence_length), so (batch_size, N, W) if N is your number of feature channels
 ############
