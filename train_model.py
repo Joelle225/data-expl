@@ -26,16 +26,16 @@ import datetime
 ######ooo######
 # Knobs to turn: 
 n_splits                = 5
-train_window_size       = 45
-train_stride            = 1 # was 3
+train_window_size       = 50
+train_stride            = 20 # was 3
 train_neg_to_pos_ratio  = 1 # was 10
 train_balance_dataset   = True 
 train_jitter_max        = 0
-train_reverse_positives = True # try setting to false to see what happens to performance TODO.
+train_reverse_positives = False # try setting to false to see what happens to performance TODO.
 learning_rate           = 3e-4 # was 1e-3
 
-val_window_size         = 45
-val_stride              = 1
+val_window_size         = 50
+val_stride              = 10
 val_neg_to_pos_ratio    = 4
 val_balance_dataset     = False
 

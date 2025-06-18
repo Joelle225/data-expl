@@ -39,12 +39,15 @@ class SlidingWindowPoseDataset(Dataset):
             for start in range(0, T - window_size + 1, stride):
                 end = start + window_size
                 Y_win = Y[start:end]
-                label = torch.any(Y_win > 0).float()
+                label = (Y_win.float().mean() >= 0.6).float()
 
-                select_keypoints = [0, 2, 3, 7, 8] # selects head shoulders and hands
+                if label == 0 and torch.any(Y_win > 0): #if overall label is 0, and there are positive labels in this window, discard, only use fully zero drinking windows for negatives during training
+                    continue
+
+                select_keypoints = [1, 2, 3, 5, 6, 8, 9, 12] # selects head shoulders and hands
                 newX = X[start:end][:, select_keypoints, :]
                 sample = {
-                    'X': newX,       # !!!HI, HERE THIS COMMENT IS IMPORTANT!!! I want to turn this [W, 17, 2] --> into extraacted features instead. How?
+                    'X': newX,      
                     'Y': label,              # float (0.0 or 1.0)
                     'meta': {
                         **meta,
