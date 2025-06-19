@@ -39,7 +39,7 @@ def train_one_epoch(model, dataloader, optimizer, loss_fn, device):
     running_loss = 0.0
 
     for batch in tqdm(dataloader, desc="Training"):
-        X, y = batch
+        X, y, meta = batch
 
         if torch.isnan(X).any():
             raise ValueError("NaN found in input features X! Please clean your dataset.")

@@ -9,6 +9,7 @@ import numpy as np
 from sklearn.metrics import roc_auc_score, precision_recall_fscore_support, f1_score, accuracy_score, roc_curve, precision_recall_curve, average_precision_score, auc
 import datetime
 import matplotlib.pyplot as plt
+from draw_linegraph import *
 
 ############
 ### TODO's
@@ -121,7 +122,7 @@ for fold, (train_idx, val_idx) in enumerate(kf.split(group_keys)):
     val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, num_workers=4, pin_memory=True)
 
     # Model, optimizer, loss
-    sample_X, _ = train_dataset[0]
+    sample_X, _, _ = train_dataset[0]
     input_channel_size = sample_X.shape[1] * sample_X.shape[2]
     model = DrinkingCNN(input_channels=input_channel_size).to(device)
     loss_fn = torch.nn.BCEWithLogitsLoss()
@@ -224,6 +225,37 @@ for fold, (train_idx, val_idx) in enumerate(kf.split(group_keys)):
     print(f"Recall:      {recall_fold:.4f}")
     print(f"F1 Score:    {f1_fold:.4f}")
 
+    # Get detailed predictions (preds, labels, metas)
+    fold_preds, _, fold_metas = get_detailed_predictions(
+        model=model,
+        val_sequences=val_sequences, # The validation sequences for this specific fold
+        window_size=train_window_size, # Use the same window size as training
+        device=device,
+        best_threshold=best_threshold
+    )
+
+    # Process and save plots for this fold's results
+    # We create a sub-directory for each fold's plots to keep them organized
+    output_plot_dir = f"plots_fold_{fold+1}"
+
+    # Generate plots using "Any Vote"
+    process_and_plot_time_series(
+        all_preds=fold_preds,
+        all_metas=fold_metas,
+        sequence_dataset=sequence_dataset, # The full dataset for looking up ground truth
+        output_dir=f"{output_plot_dir}/any_vote",
+        use_majority_vote=False
+    )
+
+    # Generate plots using "Majority Vote"
+    process_and_plot_time_series(
+        all_preds=fold_preds,
+        all_metas=fold_metas,
+        sequence_dataset=sequence_dataset,
+        output_dir=f"{output_plot_dir}/majority_vote",
+        use_majority_vote=True
+    )
+
     # Append results for overall ensemble calculation
     # It's better to store predictions and evaluate at the end.
     overall_y_scores_accumulated.append(y_scores_this_fold)
@@ -290,7 +322,7 @@ plt.ylabel('True Positive Rate (TPR)')
 plt.title('Receiver Operating Characteristic (ROC) Curve')
 plt.legend(loc="lower right")
 plt.grid(True)
-plt.savefig("roc_curves.png")
+plt.savefig(f"roc_curves{datetime.datetime.now()}.png")
 
 
 ###############################################################
@@ -322,7 +354,7 @@ plt.ylabel('Precision')
 plt.title('Precision-Recall Curve')
 plt.legend(loc="best")
 plt.grid(True)
-plt.savefig("prec-rec_curves.png")
+plt.savefig(f"prec-rec_curves{datetime.datetime.now()}.png")
 
 ##### Focal loss?
 
