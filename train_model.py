@@ -6,8 +6,9 @@ from cnn import DrinkingCNN, train_model
 import torch
 # from torch import nn
 import numpy as np
-from sklearn.metrics import roc_auc_score, precision_recall_fscore_support, f1_score, accuracy_score
+from sklearn.metrics import roc_auc_score, precision_recall_fscore_support, f1_score, accuracy_score, roc_curve, precision_recall_curve, average_precision_score, auc
 import datetime
+import matplotlib.pyplot as plt
 
 ############
 ### TODO's
@@ -32,9 +33,9 @@ all_f1s = []
 
 ######ooo######
 # Knobs to turn: 
-n_splits                = 3
-train_window_size       = 100
-train_stride            = 20 # was 3
+n_splits                = 5
+train_window_size       = 180
+train_stride            = 60 # was 3
 train_neg_to_pos_ratio  = 2 # was 10
 train_balance_dataset   = True 
 train_jitter_max        = 0
@@ -47,12 +48,12 @@ val_neg_to_pos_ratio    = 4                 # irrellevant
 val_balance_dataset     = False
 
 batch_size              = 32
-bce_pos_weight_factor   = 10 # was 350
+bce_pos_weight_factor   = 4 # was 350
 num_epochs              = 20
 ######ooo######
 
 # Misc Options
-save_model_weights=False
+save_model_weights=True
 
 # Load dataset
 sequence_dataset = torch.load("./drinking_sequence_dataset.pth")
@@ -110,7 +111,8 @@ for fold, (train_idx, val_idx) in enumerate(kf.split(group_keys)):
         neg_to_pos_ratio=val_neg_to_pos_ratio,  # or False for full negatives
         balance=val_balance_dataset,            # Evaluate on unbalanced validation
         jitter_max=0,
-        reverse_positives=False
+        reverse_positives=False,
+        percentage_pos=0.3
     )
     print(f"Validation dataset size: {len(val_dataset)}")
 
@@ -128,7 +130,13 @@ for fold, (train_idx, val_idx) in enumerate(kf.split(group_keys)):
         train_labels_for_weight = [sample_tuple[1].item() for sample_tuple in train_dataset]
         num_pos_train = sum(1 for label in train_labels_for_weight if label == 1.0)
         num_neg_train = len(train_labels_for_weight) - num_pos_train
+
+        val_labels_for_weight = [sample_tuple[1].item() for sample_tuple in val_dataset] 
+        num_pos_val = sum(1 for label in val_labels_for_weight if label == 1.0)
+        num_neg_val = len(val_labels_for_weight) - num_pos_val
+
         print(f"Num pos this fold: {num_pos_train}, Num negative this fold: {num_neg_train}")
+        print(f"Num pos val this fold: {num_pos_val}, Num negative val this fold: {num_neg_val}")
 
         if num_pos_train > 0:
             effective_pos_weight = torch.tensor(bce_pos_weight_factor * (num_neg_train / num_pos_train), device=device) # device=device) #
@@ -176,7 +184,7 @@ for fold, (train_idx, val_idx) in enumerate(kf.split(group_keys)):
     train_probs_for_threshold = np.concatenate(train_probs_for_threshold)
     train_labels_for_threshold = np.concatenate(train_labels_for_threshold)
 
-    thresholds = np.arange(0.0, 1.0, 0.01)
+    thresholds = np.arange(0.0, 0.95, 0.01)
     f1_scores = [f1_score(train_labels_for_threshold, (train_probs_for_threshold >= t).astype(int), zero_division=0) for t in thresholds]
     best_threshold = thresholds[np.argmax(f1_scores)]
     print(f"Best threshold for this fold (from training data): {best_threshold:.2f}")
@@ -231,6 +239,90 @@ print(f"Average ROC AUC: {np.mean(all_roc_aucs):.4f} (+/- {np.std(all_roc_aucs):
 print(f"Average Precision: {np.mean(all_precisions):.4f} (+/- {np.std(all_precisions):.4f})")
 print(f"Average Recall:    {np.mean(all_recalls):.4f} (+/- {np.std(all_recalls):.4f})")
 print(f"Average F1 Score:  {np.mean(all_f1s):.4f} (+/- {np.std(all_f1s):.4f})")
+
+
+######## plotting ########
+#################################################################
+# 1. Plotting the Receiver Operating Characteristic (ROC) Curve #
+#################################################################
+
+plt.figure(figsize=(10, 8))
+tprs = []
+aucs = []
+mean_fpr = np.linspace(0, 1, 100)
+
+# Plot ROC curve for each fold
+for i in range(n_splits):
+    fpr, tpr, thresholds = roc_curve(overall_y_labels_accumulated[i], overall_y_scores_accumulated[i])
+    roc_auc = auc(fpr, tpr)
+    plt.plot(fpr, tpr, lw=1, alpha=0.5, label=f'Fold {i + 1} (AUC = {roc_auc:.2f})')
+    
+    # Interpolate TPRs at mean_fpr points
+    interp_tpr = np.interp(mean_fpr, fpr, tpr)
+    interp_tpr[0] = 0.0
+    tprs.append(interp_tpr)
+    aucs.append(roc_auc)
+
+# Plot the random guesser line
+plt.plot([0, 1], [0, 1], linestyle='--', lw=2, color='r', label='Random Guesser', alpha=.8)
+
+# Plot the mean ROC curve
+mean_tpr = np.mean(tprs, axis=0)
+mean_tpr[-1] = 1.0
+mean_auc = auc(mean_fpr, mean_tpr)
+std_auc = np.std(aucs)
+plt.plot(mean_fpr, mean_tpr, color='b',
+         label=f'Mean ROC (AUC = {mean_auc:.2f} $\\pm$ {std_auc:.2f})',
+         lw=2, alpha=.8)
+
+# Plot the standard deviation around the mean ROC curve
+std_tpr = np.std(tprs, axis=0)
+tprs_upper = np.minimum(mean_tpr + std_tpr, 1)
+tprs_lower = np.maximum(mean_tpr - std_tpr, 0)
+plt.fill_between(mean_fpr, tprs_lower, tprs_upper, color='grey', alpha=.2,
+                 label=r'$\pm$ 1 std. dev.')
+
+# Final plot settings
+plt.xlim([-0.05, 1.05])
+plt.ylim([-0.05, 1.05])
+plt.xlabel('False Positive Rate (FPR)')
+plt.ylabel('True Positive Rate (TPR)')
+plt.title('Receiver Operating Characteristic (ROC) Curve')
+plt.legend(loc="lower right")
+plt.grid(True)
+plt.savefig("roc_curves.png")
+
+
+###############################################################
+# 2. Plotting the Precision-Recall (PR) Curve                 #
+###############################################################
+
+plt.figure(figsize=(10, 8))
+
+# Concatenate all fold results to calculate the baseline
+all_y_true = np.concatenate(overall_y_labels_accumulated)
+pos_proportion = np.sum(all_y_true) / len(all_y_true)
+
+# Plot the random guesser line for PR curve
+plt.plot([0, 1], [pos_proportion, pos_proportion], linestyle='--', lw=2, color='r', 
+         label=f'Random Guesser (AP = {pos_proportion:.2f})', alpha=.8)
+
+# Plot PR curve for each fold
+for i in range(n_splits):
+    precision, recall, _ = precision_recall_curve(overall_y_labels_accumulated[i], overall_y_scores_accumulated[i])
+    avg_precision = average_precision_score(overall_y_labels_accumulated[i], overall_y_scores_accumulated[i])
+    plt.plot(recall, precision, lw=1, alpha=0.5,
+             label=f'Fold {i + 1} (AP = {avg_precision:.2f})')
+
+# Final plot settings
+plt.xlim([-0.05, 1.05])
+plt.ylim([-0.05, 1.05])
+plt.xlabel('Recall')
+plt.ylabel('Precision')
+plt.title('Precision-Recall Curve')
+plt.legend(loc="best")
+plt.grid(True)
+plt.savefig("prec-rec_curves.png")
 
 ##### Focal loss?
 

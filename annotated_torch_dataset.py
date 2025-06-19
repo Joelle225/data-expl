@@ -14,7 +14,8 @@ class SlidingWindowPoseDataset(Dataset):
         balance=True,
         jitter_max=5,
         reverse_positives=True,
-        seed=42
+        seed=42,
+        percentage_pos=0.6
     ):
         self.window_size = window_size
         self.stride = stride
@@ -23,6 +24,7 @@ class SlidingWindowPoseDataset(Dataset):
         self.balance = balance
         self.neg_to_pos_ratio = neg_to_pos_ratio
         self.samples = []
+        self.percentage_pos=percentage_pos
 
         random.seed(seed)
         np.random.seed(seed)
@@ -39,7 +41,7 @@ class SlidingWindowPoseDataset(Dataset):
             for start in range(0, T - window_size + 1, stride):
                 end = start + window_size
                 Y_win = Y[start:end]
-                label = (Y_win.float().mean() >= 0.6).float()
+                label = (Y_win.float().mean() >= percentage_pos).float()
 
                 if label == 0 and torch.any(Y_win > 0): #if overall label is 0, and there are positive labels in this window, discard, only use fully zero drinking windows for negatives during training
                     continue
