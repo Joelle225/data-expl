@@ -33,13 +33,13 @@ all_f1s = []
 ######ooo######
 # Knobs to turn: 
 n_splits                = 3
-train_window_size       = 200
+train_window_size       = 100
 train_stride            = 20 # was 3
 train_neg_to_pos_ratio  = 2 # was 10
 train_balance_dataset   = True 
 train_jitter_max        = 0
 train_reverse_positives = False # try setting to false to see what happens to performance TODO.
-learning_rate           = 5e-4 # was 1e-3
+learning_rate           = 3e-4 # was 1e-3
 
 val_window_size         = train_window_size # for now keep the same
 val_stride              = 5
