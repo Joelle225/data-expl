@@ -40,7 +40,7 @@ class SlidingWindowPoseDataset(Dataset):
             elif target_n_pos == 0 and len(neg_samples) == 0: # No samples at all
                  print("Warning: No positive or negative samples found.")
                  self.samples = []
-            else: # Positive samples exist
+            else: # Positive and Negative samples exist
                 keep_n_neg = min(len(neg_samples), target_n_pos * neg_to_pos_ratio)
                 random.shuffle(neg_samples)
                 self.samples = pos_samples + neg_samples[:keep_n_neg]

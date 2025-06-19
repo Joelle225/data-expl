@@ -9,14 +9,14 @@ import numpy as np
 ######ooo######
 # Misc. Knobs
 n_splits                = 5
-neg_to_pos_ratio        = 2 # Balancing for training data
-balance_dataset         = True
+neg_to_pos_ratio        = 1 # Balancing for training data
+balance_dataset         = True # TODO reenable
 
 # RF Hyperparameters
-rf_n_estimators         = 3000
+rf_n_estimators         = 1000
 rf_max_depth            = None
 rf_min_samples_split    = 8
-rf_min_samples_leaf     = 12
+rf_min_samples_leaf     = 4
 rf_class_weight         = "balanced" # Handles imbalance within RF
 ######ooo######
 
@@ -78,7 +78,7 @@ for fold, (train_group_indices, val_group_indices) in enumerate(kf.split(group_k
     
     # Prepare data for scikit-learn's fit method
     # X_train will be a list of 1D feature arrays, y_train a list of labels
-    print(f"what is sample[1]? its: {train_dataset[1][1]}")
+    # print(f"what is sample[1]? its: {train_dataset[1][1]}")
     X_train_list = [sample[0] for sample in train_dataset] # TODO is incorrect?, also check validation code
     y_train_list = [sample[1] for sample in train_dataset]
     
@@ -118,7 +118,12 @@ for fold, (train_group_indices, val_group_indices) in enumerate(kf.split(group_k
         print("Warning: No validation samples after processing for this fold.")
     
     X_val_np = np.array(X_val_list)
+    y_val_np = np.array(y_val_list)
     y_true_this_fold = np.array(y_val_list)
+
+    num_pos_val = np.sum(y_val_np == 1.0)
+    num_neg_val = np.sum(y_val_np == 0.0)
+    print(f"Num pos for RF validation this fold: {num_pos_val}, Num neg: {num_neg_val}")
 
     y_probs_this_fold = model_rf.predict_proba(X_val_np)[:, 1] # Probabilities for the positive class
     y_preds_this_fold = model_rf.predict(X_val_np)
@@ -154,7 +159,7 @@ else:
     del overall_y_scores_accumulated, sequence_dataset_pt
 
     try:
-        thresholds = np.arange(0.0, 1.0, 0.01)
+        thresholds = np.arange(0.3, 0.8, 0.01)
         f1_scores = [f1_score(y_true_overall, (y_scores_overall >= t).astype(int), zero_division=0) for t in thresholds]
         
         best_threshold_idx = np.argmax(f1_scores)

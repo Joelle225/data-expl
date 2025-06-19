@@ -4,7 +4,7 @@ import numpy as np
 from tqdm import tqdm
 from collections import defaultdict
 
-window_size = 50
+window_size = 180
 step_size = 5
 
 # Before running this file, dataset[] will look as follows:
@@ -210,7 +210,11 @@ for entry in tqdm(dataset, desc="Extracting features..."):
         window_X_tensor = X[start_idx:end_idx]
         window_Y_labels = Y[start_idx:end_idx]
         
-        label = torch.any(window_Y_labels > 0).float()
+        labelp = (window_Y_labels > 0).float().mean().item()
+        label = 1.0 if labelp >= 0.5 else 0.0
+
+        if label == 0.0 and (window_Y_labels > 0).any():
+            continue
         
         # 2. Extract features from the window
         # Convert to NumPy and pass to the helper function
