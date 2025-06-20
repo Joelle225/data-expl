@@ -90,4 +90,4 @@ class SlidingWindowPoseDataset(Dataset):
         Y = sample['Y']
         meta = sample['meta']
 
-        return X.nan_to_num(nan=1.0), Y.nan_to_num(nan=1.0), meta
+        return X.nan_to_num(nan=1.0), Y.nan_to_num(nan=1.0)
