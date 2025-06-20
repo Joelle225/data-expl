@@ -45,8 +45,8 @@ learning_rate           = 3e-4 # was 1e-3
 
 val_window_size         = train_window_size # for now keep the same
 val_stride              = 5
-val_neg_to_pos_ratio    = 4                 # irrellevant
-val_balance_dataset     = False
+val_neg_to_pos_ratio    = 10                 # irrellevant
+val_balance_dataset     = True
 
 batch_size              = 32
 bce_pos_weight_factor   = 4 # was 350
@@ -55,6 +55,24 @@ num_epochs              = 20
 
 # Misc Options
 save_model_weights=True
+plot_y_values = False
+plot_2_curves = False
+
+# Custom collate function (returning meta in dataloader won't work without this func) #
+
+def custom_collate_fn(batch):
+    """
+    Custom collate function to handle batches of (data, label, meta).
+    'meta' is a list of dicts and is returned as is.
+    """
+    X_list = [item[0] for item in batch]
+    Y_list = [item[1] for item in batch]
+    meta_list = [item[2] for item in batch]
+
+    X_batch = torch.stack(X_list)
+    Y_batch = torch.stack(Y_list)
+
+    return X_batch, Y_batch, meta_list
 
 # Load dataset
 sequence_dataset = torch.load("./drinking_sequence_dataset.pth")
@@ -80,6 +98,7 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 # Store out-of-fold predictions and labels for overall ensemble evaluation
 overall_y_scores_accumulated = [] # Probabilities for positive class
 overall_y_labels_accumulated = []
+
 
 for fold, (train_idx, val_idx) in enumerate(kf.split(group_keys)):
     print(f"\n=== Fold {fold + 1}/{n_splits} ===")
@@ -118,8 +137,8 @@ for fold, (train_idx, val_idx) in enumerate(kf.split(group_keys)):
     print(f"Validation dataset size: {len(val_dataset)}")
 
     # DataLoaders
-    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=4, pin_memory=True)
-    val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, num_workers=4, pin_memory=True)
+    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=4, pin_memory=True, collate_fn=custom_collate_fn)
+    val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, num_workers=4, pin_memory=True, collate_fn=custom_collate_fn)
 
     # Model, optimizer, loss
     sample_X, _, _ = train_dataset[0]
@@ -175,7 +194,7 @@ for fold, (train_idx, val_idx) in enumerate(kf.split(group_keys)):
     train_labels_for_threshold = []
     with torch.no_grad():
         # Note: Because of the lack of data we compromise and use training data to determine optimal f1 so there is no leakage (shouldn't do this on val set)
-        for X_batch, y_batch in train_loader:
+        for X_batch, y_batch, met_batch in train_loader:
             X_batch = X_batch.to(device)
             logits = model(X_batch)
             probs = torch.sigmoid(logits).cpu().numpy()
@@ -190,12 +209,79 @@ for fold, (train_idx, val_idx) in enumerate(kf.split(group_keys)):
     best_threshold = thresholds[np.argmax(f1_scores)]
     print(f"Best threshold for this fold (from training data): {best_threshold:.2f}")
 
+    
+    # Generate a plot for each group
+    if plot_y_values:
+        ######### plotting ytrue vs ypred #########
+        print("\n--- Evaluating and generating plots for validation set ---")
+        model.eval()
+        fold_results = []
+        with torch.no_grad():
+            # Iterate through the validation loader to get predictions with metadata
+            for X_batch, y_batch, meta_batch in val_loader:
+                X_batch = X_batch.to(device)
+                logits = model(X_batch)
+                # Apply sigmoid to get probabilities, then flatten
+                probs = torch.sigmoid(logits).cpu().numpy().flatten()
+                labels = y_batch.cpu().numpy().flatten()
+
+                # Store each prediction with its corresponding metadata
+                for i in range(len(probs)):
+                    fold_results.append({
+                        'prob': probs[i],
+                        'label': labels[i],
+                        'meta': meta_batch[i]
+                    })
+
+        # Group results by video segment to create separate plots
+        grouped_for_plotting = defaultdict(list)
+        for result in fold_results:
+            meta = result['meta']
+            key = (meta['participant'], meta['video'], meta['segment'], meta['camera'])
+            grouped_for_plotting[key].append(result)
+
+        # Create a directory for the fold's plots if it doesn't exist
+        plot_dir = f"./fold_{fold+1}_plots"
+        os.makedirs(plot_dir, exist_ok=True)
+
+        for key, results in grouped_for_plotting.items():
+            participant, video, segment, camera = key
+
+            # Sort results by the start frame to ensure the time axis is correct
+            results.sort(key=lambda r: r['meta']['start_frame'])
+
+            frames = [r['meta']['start_frame'] for r in results]
+            preds = [r['prob'] for r in results]
+            truths = [r['label'] for r in results]
+
+            plt.figure(figsize=(18, 6))
+            # Plot ground truth as a stepped line to show clear label boundaries
+            plt.step(frames, truths, where='post', label='Ground Truth Label', color='green', linestyle='--', linewidth=2)
+            # Plot model predictions
+            plt.plot(frames, preds, label='Model Prediction (Probability)', color='blue', alpha=0.8, marker='.', markersize=4)
+            # Plot the determined threshold as a reference line
+            plt.axhline(y=best_threshold, color='red', linestyle=':', label=f'Optimal F1 Threshold ({best_threshold:.2f})')
+
+            plt.title(f"Fold {fold+1}: Predictions vs. Truth\nParticipant {participant} | Video {video} | Segment {segment} | Camera {camera}")
+            plt.xlabel("Start Frame of Window")
+            plt.ylabel("Label / Probability")
+            plt.ylim(-0.1, 1.1)
+            plt.legend(loc='upper left')
+            plt.grid(True, which='both', linestyle='--', linewidth=0.5)
+
+            # Sanitize the filename
+            filename = f"p{participant}_v{video}_s{segment}_c{camera}.png"
+            save_path = os.path.join(plot_dir, filename)
+            plt.savefig(save_path)
+            plt.close() # Close the figure to free up memory
+
+    print(f"Generated {len(grouped_for_plotting)} plots in the '{plot_dir}' directory.\n")
 
     # --- Evaluate on the VALIDATION data using the determined threshold ---
     y_scores_this_fold = []
     y_true_this_fold = []
     with torch.no_grad():
-        for X_batch, y_batch in val_loader:
+        for X_batch, y_batch, _ in val_loader:
             X_batch = X_batch.to(device)
             logits = model(X_batch)
             probs = torch.sigmoid(logits).cpu().numpy()
@@ -225,44 +311,10 @@ for fold, (train_idx, val_idx) in enumerate(kf.split(group_keys)):
     print(f"Recall:      {recall_fold:.4f}")
     print(f"F1 Score:    {f1_fold:.4f}")
 
-    # Get detailed predictions (preds, labels, metas)
-    fold_preds, _, fold_metas = get_detailed_predictions(
-        model=model,
-        val_sequences=val_sequences, # The validation sequences for this specific fold
-        window_size=train_window_size, # Use the same window size as training
-        device=device,
-        best_threshold=best_threshold
-    )
-
-    # Process and save plots for this fold's results
-    # We create a sub-directory for each fold's plots to keep them organized
-    output_plot_dir = f"plots_fold_{fold+1}"
-
-    # Generate plots using "Any Vote"
-    process_and_plot_time_series(
-        all_preds=fold_preds,
-        all_metas=fold_metas,
-        sequence_dataset=sequence_dataset, # The full dataset for looking up ground truth
-        output_dir=f"{output_plot_dir}/any_vote",
-        use_majority_vote=False
-    )
-
-    # Generate plots using "Majority Vote"
-    process_and_plot_time_series(
-        all_preds=fold_preds,
-        all_metas=fold_metas,
-        sequence_dataset=sequence_dataset,
-        output_dir=f"{output_plot_dir}/majority_vote",
-        use_majority_vote=True
-    )
-
     # Append results for overall ensemble calculation
     # It's better to store predictions and evaluate at the end.
     overall_y_scores_accumulated.append(y_scores_this_fold)
     overall_y_labels_accumulated.append(y_true_this_fold)
-
-
-# (After the loop has finished)
 
 # --- Overall Performance Across All Folds ---
 
@@ -274,90 +326,89 @@ print(f"Average F1 Score:  {np.mean(all_f1s):.4f} (+/- {np.std(all_f1s):.4f})")
 
 
 ######## plotting ########
-#################################################################
-# 1. Plotting the Receiver Operating Characteristic (ROC) Curve #
-#################################################################
+if plot_2_curves:
+    #################################################################
+    # 1. Plotting the Receiver Operating Characteristic (ROC) Curve #
+    #################################################################
+    plt.figure(figsize=(10, 8))
+    tprs = []
+    aucs = []
+    mean_fpr = np.linspace(0, 1, 100)
 
-plt.figure(figsize=(10, 8))
-tprs = []
-aucs = []
-mean_fpr = np.linspace(0, 1, 100)
+    # Plot ROC curve for each fold
+    for i in range(n_splits):
+        fpr, tpr, thresholds = roc_curve(overall_y_labels_accumulated[i], overall_y_scores_accumulated[i])
+        roc_auc = auc(fpr, tpr)
+        plt.plot(fpr, tpr, lw=1, alpha=0.5, label=f'Fold {i + 1} (AUC = {roc_auc:.2f})')
+        
+        # Interpolate TPRs at mean_fpr points
+        interp_tpr = np.interp(mean_fpr, fpr, tpr)
+        interp_tpr[0] = 0.0
+        tprs.append(interp_tpr)
+        aucs.append(roc_auc)
 
-# Plot ROC curve for each fold
-for i in range(n_splits):
-    fpr, tpr, thresholds = roc_curve(overall_y_labels_accumulated[i], overall_y_scores_accumulated[i])
-    roc_auc = auc(fpr, tpr)
-    plt.plot(fpr, tpr, lw=1, alpha=0.5, label=f'Fold {i + 1} (AUC = {roc_auc:.2f})')
-    
-    # Interpolate TPRs at mean_fpr points
-    interp_tpr = np.interp(mean_fpr, fpr, tpr)
-    interp_tpr[0] = 0.0
-    tprs.append(interp_tpr)
-    aucs.append(roc_auc)
+    # Plot the random guesser line
+    plt.plot([0, 1], [0, 1], linestyle='--', lw=2, color='r', label='Random Guesser', alpha=.8)
 
-# Plot the random guesser line
-plt.plot([0, 1], [0, 1], linestyle='--', lw=2, color='r', label='Random Guesser', alpha=.8)
+    # Plot the mean ROC curve
+    mean_tpr = np.mean(tprs, axis=0)
+    mean_tpr[-1] = 1.0
+    mean_auc = auc(mean_fpr, mean_tpr)
+    std_auc = np.std(aucs)
+    plt.plot(mean_fpr, mean_tpr, color='b',
+            label=f'Mean ROC (AUC = {mean_auc:.2f} $\\pm$ {std_auc:.2f})',
+            lw=2, alpha=.8)
 
-# Plot the mean ROC curve
-mean_tpr = np.mean(tprs, axis=0)
-mean_tpr[-1] = 1.0
-mean_auc = auc(mean_fpr, mean_tpr)
-std_auc = np.std(aucs)
-plt.plot(mean_fpr, mean_tpr, color='b',
-         label=f'Mean ROC (AUC = {mean_auc:.2f} $\\pm$ {std_auc:.2f})',
-         lw=2, alpha=.8)
+    # Plot the standard deviation around the mean ROC curve
+    std_tpr = np.std(tprs, axis=0)
+    tprs_upper = np.minimum(mean_tpr + std_tpr, 1)
+    tprs_lower = np.maximum(mean_tpr - std_tpr, 0)
+    plt.fill_between(mean_fpr, tprs_lower, tprs_upper, color='grey', alpha=.2,
+                    label=r'$\pm$ 1 std. dev.')
 
-# Plot the standard deviation around the mean ROC curve
-std_tpr = np.std(tprs, axis=0)
-tprs_upper = np.minimum(mean_tpr + std_tpr, 1)
-tprs_lower = np.maximum(mean_tpr - std_tpr, 0)
-plt.fill_between(mean_fpr, tprs_lower, tprs_upper, color='grey', alpha=.2,
-                 label=r'$\pm$ 1 std. dev.')
-
-# Final plot settings
-plt.xlim([-0.05, 1.05])
-plt.ylim([-0.05, 1.05])
-plt.xlabel('False Positive Rate (FPR)')
-plt.ylabel('True Positive Rate (TPR)')
-plt.title('Receiver Operating Characteristic (ROC) Curve')
-plt.legend(loc="lower right")
-plt.grid(True)
-plt.savefig(f"roc_curves{datetime.datetime.now()}.png")
+    # Final plot settings
+    plt.xlim([-0.05, 1.05])
+    plt.ylim([-0.05, 1.05])
+    plt.xlabel('False Positive Rate (FPR)')
+    plt.ylabel('True Positive Rate (TPR)')
+    plt.title('Receiver Operating Characteristic (ROC) Curve')
+    plt.legend(loc="lower right")
+    plt.grid(True)
+    plt.savefig(f"roc_curves{datetime.datetime.now()}.png")
 
 
-###############################################################
-# 2. Plotting the Precision-Recall (PR) Curve                 #
-###############################################################
+    ###############################################################
+    # 2. Plotting the Precision-Recall (PR) Curve                 #
+    ###############################################################
 
-plt.figure(figsize=(10, 8))
+    plt.figure(figsize=(10, 8))
 
-# Concatenate all fold results to calculate the baseline
-all_y_true = np.concatenate(overall_y_labels_accumulated)
-pos_proportion = np.sum(all_y_true) / len(all_y_true)
+    # Concatenate all fold results to calculate the baseline
+    all_y_true = np.concatenate(overall_y_labels_accumulated)
+    pos_proportion = np.sum(all_y_true) / len(all_y_true)
 
-# Plot the random guesser line for PR curve
-plt.plot([0, 1], [pos_proportion, pos_proportion], linestyle='--', lw=2, color='r', 
-         label=f'Random Guesser (AP = {pos_proportion:.2f})', alpha=.8)
+    # Plot the random guesser line for PR curve
+    plt.plot([0, 1], [pos_proportion, pos_proportion], linestyle='--', lw=2, color='r', 
+            label=f'Random Guesser (AP = {pos_proportion:.2f})', alpha=.8)
 
-# Plot PR curve for each fold
-for i in range(n_splits):
-    precision, recall, _ = precision_recall_curve(overall_y_labels_accumulated[i], overall_y_scores_accumulated[i])
-    avg_precision = average_precision_score(overall_y_labels_accumulated[i], overall_y_scores_accumulated[i])
-    plt.plot(recall, precision, lw=1, alpha=0.5,
-             label=f'Fold {i + 1} (AP = {avg_precision:.2f})')
+    # Plot PR curve for each fold
+    for i in range(n_splits):
+        precision, recall, _ = precision_recall_curve(overall_y_labels_accumulated[i], overall_y_scores_accumulated[i])
+        avg_precision = average_precision_score(overall_y_labels_accumulated[i], overall_y_scores_accumulated[i])
+        plt.plot(recall, precision, lw=1, alpha=0.5,
+                label=f'Fold {i + 1} (AP = {avg_precision:.2f})')
 
-# Final plot settings
-plt.xlim([-0.05, 1.05])
-plt.ylim([-0.05, 1.05])
-plt.xlabel('Recall')
-plt.ylabel('Precision')
-plt.title('Precision-Recall Curve')
-plt.legend(loc="best")
-plt.grid(True)
-plt.savefig(f"prec-rec_curves{datetime.datetime.now()}.png")
+    # Final plot settings
+    plt.xlim([-0.05, 1.05])
+    plt.ylim([-0.05, 1.05])
+    plt.xlabel('Recall')
+    plt.ylabel('Precision')
+    plt.title('Precision-Recall Curve')
+    plt.legend(loc="best")
+    plt.grid(True)
+    plt.savefig(f"prec-rec_curves{datetime.datetime.now()}.png")
 
 ##### Focal loss?
-
 class FocalLoss(torch.nn.Module):
     def __init__(self, alpha=0.25, gamma=2):
         super(FocalLoss, self).__init__()
