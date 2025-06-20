@@ -54,9 +54,10 @@ num_epochs              = 20
 ######ooo######
 
 # Misc Options
-save_model_weights=True
+save_model_weights=False
 plot_y_values = False
 plot_2_curves = False
+plot_pr_vs_threshold = False
 
 # Custom collate function (returning meta in dataloader won't work without this func) #
 
@@ -99,6 +100,9 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 overall_y_scores_accumulated = [] # Probabilities for positive class
 overall_y_labels_accumulated = []
 
+# lists to store data for the new plot
+all_fold_precisions_vs_thresh = []
+all_fold_recalls_vs_thresh = []
 
 for fold, (train_idx, val_idx) in enumerate(kf.split(group_keys)):
     print(f"\n=== Fold {fold + 1}/{n_splits} ===")
@@ -209,7 +213,7 @@ for fold, (train_idx, val_idx) in enumerate(kf.split(group_keys)):
     best_threshold = thresholds[np.argmax(f1_scores)]
     print(f"Best threshold for this fold (from training data): {best_threshold:.2f}")
 
-    
+
     # Generate a plot for each group
     if plot_y_values:
         ######### plotting ytrue vs ypred #########
@@ -275,7 +279,7 @@ for fold, (train_idx, val_idx) in enumerate(kf.split(group_keys)):
             plt.savefig(save_path)
             plt.close() # Close the figure to free up memory
 
-    print(f"Generated {len(grouped_for_plotting)} plots in the '{plot_dir}' directory.\n")
+        print(f"Generated {len(grouped_for_plotting)} plots in the '{plot_dir}' directory.\n")
 
     # --- Evaluate on the VALIDATION data using the determined threshold ---
     y_scores_this_fold = []
@@ -315,6 +319,25 @@ for fold, (train_idx, val_idx) in enumerate(kf.split(group_keys)):
     # It's better to store predictions and evaluate at the end.
     overall_y_scores_accumulated.append(y_scores_this_fold)
     overall_y_labels_accumulated.append(y_true_this_fold)
+
+        # --- NEW: Generate Precision-Recall vs. Threshold plot for this fold ---
+    if plot_pr_vs_threshold and len(np.unique(y_true_this_fold)) > 1:
+        precisions, recalls, thresholds = precision_recall_curve(y_true_this_fold, y_scores_this_fold)
+        all_fold_precisions_vs_thresh.append(np.interp(np.linspace(0, 1, 100), thresholds, precisions[:-1]))
+        all_fold_recalls_vs_thresh.append(np.interp(np.linspace(0, 1, 100), thresholds, recalls[:-1]))
+
+        plt.figure(figsize=(10, 8))
+        plt.plot(thresholds, precisions[:-1], label='Precision', color='blue')
+        plt.plot(thresholds, recalls[:-1], label='Recall', color='green')
+        plt.axvline(x=best_threshold, color='red', linestyle='--', label=f'Best F1 Threshold ({best_threshold:.2f})')
+        plt.title(f'Precision and Recall vs. Threshold - Fold {fold + 1}')
+        plt.xlabel('Classification Threshold')
+        plt.ylabel('Score')
+        plt.legend()
+        plt.grid(True)
+        plt.ylim([-0.05, 1.05])
+        plt.savefig(f"prec_recall_vs_threshold_fold_{fold+1}_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.png")
+        plt.close()
 
 # --- Overall Performance Across All Folds ---
 
@@ -407,6 +430,39 @@ if plot_2_curves:
     plt.legend(loc="best")
     plt.grid(True)
     plt.savefig(f"prec-rec_curves{datetime.datetime.now()}.png")
+
+if plot_pr_vs_threshold and all_fold_precisions_vs_thresh:
+    mean_thresholds = np.linspace(0, 1, 100)
+
+    mean_precisions = np.mean(all_fold_precisions_vs_thresh, axis=0)
+    std_precisions = np.std(all_fold_precisions_vs_thresh, axis=0)
+    precisions_upper = np.minimum(mean_precisions + std_precisions, 1)
+    precisions_lower = np.maximum(mean_precisions - std_precisions, 0)
+
+    mean_recalls = np.mean(all_fold_recalls_vs_thresh, axis=0)
+    std_recalls = np.std(all_fold_recalls_vs_thresh, axis=0)
+    recalls_upper = np.minimum(mean_recalls + std_recalls, 1)
+    recalls_lower = np.maximum(mean_recalls - std_recalls, 0)
+
+    plt.figure(figsize=(12, 8))
+
+    # Plot Mean Precision
+    plt.plot(mean_thresholds, mean_precisions, color='blue', label='Mean Precision')
+    plt.fill_between(mean_thresholds, precisions_lower, precisions_upper, color='blue', alpha=0.2)
+
+    # Plot Mean Recall
+    plt.plot(mean_thresholds, mean_recalls, color='green', label='Mean Recall')
+    plt.fill_between(mean_thresholds, recalls_lower, recalls_upper, color='green', alpha=0.2)
+
+    plt.title('Mean Precision and Recall vs. Classification Threshold')
+    plt.xlabel('Threshold')
+    plt.ylabel('Score')
+    plt.legend(loc='best')
+    plt.grid(True)
+    plt.xlim([0, 1])
+    plt.ylim([0, 1.05])
+    plt.savefig(f"mean_prec_recall_vs_threshold_curves_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.png")
+    plt.show()
 
 ##### Focal loss?
 class FocalLoss(torch.nn.Module):
