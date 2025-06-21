@@ -45,7 +45,7 @@ learning_rate           = 3e-4 # was 1e-3
 
 val_window_size         = train_window_size # for now keep the same
 val_stride              = 5
-val_neg_to_pos_ratio    = 30               
+val_neg_to_pos_ratio    = 10               
 val_balance_dataset     = True
 
 batch_size              = 32
