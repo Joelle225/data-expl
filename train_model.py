@@ -45,7 +45,7 @@ learning_rate           = 3e-4 # was 1e-3
 
 val_window_size         = train_window_size # for now keep the same
 val_stride              = 5
-val_neg_to_pos_ratio    = 10                 # irrellevant
+val_neg_to_pos_ratio    = 30               
 val_balance_dataset     = True
 
 batch_size              = 32
@@ -55,7 +55,7 @@ num_epochs              = 20
 
 # Misc Options
 save_model_weights=False
-plot_y_values = False
+plot_y_values = True
 plot_2_curves = False
 plot_pr_vs_threshold = False
 
@@ -317,10 +317,10 @@ for fold, (train_idx, val_idx) in enumerate(kf.split(group_keys)):
 
     # Append results for overall ensemble calculation
     # It's better to store predictions and evaluate at the end.
-    overall_y_scores_accumulated.append(y_scores_this_fold)
-    overall_y_labels_accumulated.append(y_true_this_fold)
+    if not plot_y_values: overall_y_scores_accumulated.append(y_scores_this_fold)
+    if not plot_y_values: overall_y_labels_accumulated.append(y_true_this_fold)
 
-        # --- NEW: Generate Precision-Recall vs. Threshold plot for this fold ---
+    # --- Generate Precision-Recall vs. Threshold plot for this fold --- #
     if plot_pr_vs_threshold and len(np.unique(y_true_this_fold)) > 1:
         precisions, recalls, thresholds = precision_recall_curve(y_true_this_fold, y_scores_this_fold)
         all_fold_precisions_vs_thresh.append(np.interp(np.linspace(0, 1, 100), thresholds, precisions[:-1]))
