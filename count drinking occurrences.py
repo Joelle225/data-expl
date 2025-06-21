@@ -1,7 +1,25 @@
 import torch
 from pathlib import Path
+import numpy as np
+
+# Data: Each entry is a dict: 
+#   X: [T,17,2], Y: [T], meta: identifiers + frame list
+#
+# General shape of each entry -- dataset list where each element is:
+# {
+#   'X': torch.Tensor of shape [T,17,2],
+#   'Y': torch.Tensor of shape [T],
+#   'meta': {
+#     'video':  ...,
+#     'segment': ...,
+#     'camera':  ...,
+#     'participant': ...,
+#     'frames': [list of ints]
+#   }
+# }
 
 def count_drinking_occurrences(dataset, tolerance=0):
+    lengths = []
     total_occurrences = 0
 
     for entry in dataset:
@@ -12,6 +30,7 @@ def count_drinking_occurrences(dataset, tolerance=0):
             # Skip zeros until a 1 is found
             if labels[i] == 1:
                 # Start of a new drinking occurrence
+                strt = i
                 count += 1
                 gap = 0
                 i += 1
@@ -21,16 +40,18 @@ def count_drinking_occurrences(dataset, tolerance=0):
                     else:
                         gap += 1
                         if gap > tolerance:
-                            break
+                            lengths.append(i - strt)
+                            break # end of a drinking sequence
                     i += 1
             else:
                 i += 1
 
         total_occurrences += count
 
-    return total_occurrences
+    return total_occurrences, lengths
 
 dataset = torch.load(Path("./drinking_sequence_dataset.pth"))
 tolerance = 60
-occurrences = count_drinking_occurrences(dataset, tolerance=tolerance)
+occurrences, lengths = count_drinking_occurrences(dataset, tolerance=tolerance)
 print(f"Total drinking occurrences (tolerance={tolerance}): {occurrences}")
+print(f"Mean {np.mean(lengths)}, Var: {np.var(lengths)}, len: {len(lengths)}")
